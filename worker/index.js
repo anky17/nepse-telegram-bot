@@ -84,6 +84,47 @@ export default {
         await send(env.TELEGRAM_TOKEN, chatId, "⚠️ Could not trigger update. Try again shortly.");
       }
 
+    } else if (text.startsWith("/broker")) {
+      const raw = text.replace(/^\/broker\s*/i, "").toUpperCase().trim();
+      const symbols = raw ? raw.split(",").map(s => s.trim()).filter(Boolean) : [];
+
+      if (!symbols.length) {
+        await send(env.TELEGRAM_TOKEN, chatId, [
+          "⚠️ <b>Missing symbol</b>",
+          "",
+          "Usage: <code>/broker NABIL</code> or <code>/broker NABIL,NICA</code>",
+          "",
+          "Analyzes broker buy/sell activity to detect accumulation or distribution.",
+          "Best used after market closes at 3 PM NST.",
+        ].join("\n"));
+        return new Response("OK");
+      }
+
+      const ghRes = await fetch(
+        `https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/broker_report.yml/dispatches`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "NEPSE-Bot",
+          },
+          body: JSON.stringify({ ref: "main", inputs: { symbols: symbols.join(",") } }),
+        }
+      );
+
+      if (ghRes.ok || ghRes.status === 204) {
+        await send(env.TELEGRAM_TOKEN, chatId, [
+          `⏳ <b>Analyzing ${symbols.join(", ")}...</b>`,
+          "",
+          "Broker report will arrive in ~30–60 seconds.",
+          "<i>Note: Full data is only available after 3 PM NST market close.</i>",
+        ].join("\n"));
+      } else {
+        await send(env.TELEGRAM_TOKEN, chatId, "⚠️ Could not trigger analysis. Try again.");
+      }
+
     } else if (text === "/status") {
       const stored = await env.NEPSE_KV.get("watch_stocks");
       if (stored) {
@@ -120,13 +161,15 @@ export default {
         "(Mon–Fri, 11 AM – 3 PM NST).",
         "",
         "⚙️ <b>Commands</b>",
-        "<code>/check</code>              — fetch live data right now",
-        "<code>/watch NABIL,NICA</code>   — track specific stocks",
-        "<code>/status</code>             — show your watchlist",
-        "<code>/stop</code>               — clear watchlist",
-        "<code>/help</code>               — show this message",
+        "<code>/check</code>                    — fetch live data right now",
+        "<code>/broker NABIL</code>             — broker activity + manipulation check",
+        "<code>/watch NABIL,NICA</code>         — track specific stocks",
+        "<code>/status</code>                   — show your watchlist",
+        "<code>/stop</code>                     — clear watchlist",
+        "<code>/help</code>                     — show this message",
         "",
-        "📬 Automatic updates every 30 min during market hours.",
+        "📬 Auto market updates every 30 min (11 AM–3 PM NST).",
+        "📊 Auto broker report daily at 3:15 PM NST for your watchlist.",
       ].join("\n"));
 
     } else {
