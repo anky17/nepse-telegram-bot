@@ -50,12 +50,12 @@ export default {
     const sender = message.from;
 
     // ── Anti-spam: auto-delete URLs from non-admins ───────────────
-    if (!text.startsWith("/") && URL_RE.test(text)) {
-      if (!(await isAdmin(env.TELEGRAM_TOKEN, chatId, sender.id))) {
+    if (!text.startsWith("/")) {
+      if (URL_RE.test(text) && !(await isAdmin(env.TELEGRAM_TOKEN, chatId, sender.id))) {
         await deleteMessage(env.TELEGRAM_TOKEN, chatId, message.message_id);
         await addWarn(env, chatId, sender);
-        return new Response("OK");
       }
+      return new Response("OK");
     }
 
     await typing(env.TELEGRAM_TOKEN, chatId);
