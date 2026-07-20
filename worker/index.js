@@ -15,7 +15,7 @@ export default {
     if (!message?.text) return new Response("OK");
 
     const chatId = String(message.chat.id);
-    const text = message.text.trim();
+    const text = message.text.trim().replace(/@\w+/, "").trim();
 
     if (chatId !== env.ALLOWED_CHAT_ID) {
       await send(env.TELEGRAM_TOKEN, chatId, "⛔ Unauthorized.");
