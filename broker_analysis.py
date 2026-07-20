@@ -2,21 +2,82 @@ import os
 import sys
 import urllib3
 import requests
+from datetime import datetime
+import pytz
 from nepse_scraper import NepseScraper
+from kv_utils import kv_get, kv_put_json
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
+NST = pytz.timezone("Asia/Kathmandu")
 
-CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "")
-CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "")
-CF_KV_NAMESPACE_ID = os.environ.get("CF_KV_NAMESPACE_ID", "")
-
-# If a specific symbol is passed (from /broker command), use it
+# If specific symbols passed via CLI (from /broker command), use them
 CLI_SYMBOLS = [s.strip().upper() for s in sys.argv[1:] if s.strip()]
 
 DIV = "─────────────────"
+
+
+def send_market_close_summary(scraper: NepseScraper) -> None:
+    """Full-day recap sent once at 3:15 PM NST."""
+    now = datetime.now(NST)
+    date_str = now.strftime("%a, %d %b %Y")
+    lines = [f"🔔 <b>Market Closed — {date_str}</b>", DIV]
+
+    # Index final value
+    try:
+        indices = scraper.get_nepse_index()
+        idx = next((i for i in indices if i.get("id") == 58), {})
+        current = float(idx.get("currentValue") or 0)
+        change = float(idx.get("change") or 0)
+        pct = float(idx.get("perChange") or 0)
+        prev = float(idx.get("previousClose") or idx.get("close") or 0)
+        icon = "🟢" if change >= 0 else "🔴"
+        sign = "+" if change >= 0 else ""
+        lines += [
+            f"📊 NEPSE Index",
+            f"   {icon} <b>{current:,.2f}</b>  ({sign}{pct:.2f}%)  open {prev:,.2f}",
+        ]
+    except Exception:
+        pass
+
+    # Market summary
+    try:
+        rows = scraper.call_endpoint("market_summary_api")
+        lookup = {r["detail"]: r["value"] for r in rows if "detail" in r}
+        turnover = float(lookup.get("Total Turnover Rs:", 0))
+        shares = int(lookup.get("Total Traded Shares", 0))
+        txns = int(lookup.get("Total Transactions", 0))
+        lines += [
+            "",
+            f"💼 Today's Market",
+            f"   Turnover      Rs {turnover / 1_000_000:.2f}M",
+            f"   Shares Traded {shares:,}",
+            f"   Transactions  {txns:,}",
+        ]
+    except Exception:
+        pass
+
+    # Top gainer and loser of the day
+    try:
+        gainers = scraper.get_top_stocks(category="top_gainer")
+        losers = scraper.get_top_stocks(category="top_loser")
+        if gainers:
+            g = gainers[0]
+            lines.append(f"\n🏆 Best:  <b>{g.get('symbol')}</b>  +{g.get('percentageChange', 0):.2f}%  LTP {g.get('ltp', 0):.1f}")
+        if losers:
+            l = losers[0]
+            lines.append(f"📉 Worst: <b>{l.get('symbol')}</b>  {l.get('percentageChange', 0):.2f}%  LTP {l.get('ltp', 0):.1f}")
+    except Exception:
+        pass
+
+    lines.append("\n<i>Broker report for your watchlist follows below.</i>")
+
+    send_telegram("\n".join(lines))
+
+    # Reset daily circuit breaker tracking
+    kv_put_json("alerted_circuits", {})
 
 
 def load_watch_stocks() -> list[str]:
@@ -175,16 +236,18 @@ def analyze_floorsheet(scraper: NepseScraper, symbol: str) -> str:
 
 
 def main():
+    scraper = NepseScraper(verify_ssl=False)
+
+    # Send market close summary only on the scheduled daily run (not on /broker command)
+    if not CLI_SYMBOLS:
+        send_market_close_summary(scraper)
+
     symbols = load_watch_stocks()
     if not symbols:
         print("No symbols to analyze.")
         sys.exit(0)
 
-    scraper = NepseScraper(verify_ssl=False)
     print(f"Analyzing broker activity for: {', '.join(symbols)}")
-
-    header = f"📊 <b>End-of-Day Broker Report</b>\n<i>NEPSE Close — {', '.join(symbols)}</i>"
-    send_telegram(header)
 
     for symbol in symbols:
         print(f"  → {symbol}")

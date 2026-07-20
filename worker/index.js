@@ -24,7 +24,140 @@ export default {
 
     await typing(env.TELEGRAM_TOKEN, chatId);
 
-    if (text.startsWith("/watch")) {
+    // ── /alert NABIL above 550  or  /alert NABIL below 520 ──────────
+    if (text.startsWith("/alert") && !text.startsWith("/alerts") && !text.startsWith("/delalert")) {
+      const parts = text.replace(/^\/alert\s*/i, "").toUpperCase().trim().split(/\s+/);
+      const symbol = parts[0];
+      const direction = parts.length === 3 ? parts[1].toLowerCase() : "above";
+      const price = parseFloat(parts[parts.length - 1]);
+
+      if (!symbol || isNaN(price) || !["above", "below"].includes(direction)) {
+        await send(env.TELEGRAM_TOKEN, chatId, [
+          "⚠️ <b>Usage</b>",
+          "<code>/alert NABIL above 550</code>  — alert when price goes above 550",
+          "<code>/alert NABIL below 520</code>  — alert when price drops below 520",
+        ].join("\n"));
+        return new Response("OK");
+      }
+
+      const raw = await env.NEPSE_KV.get("alerts");
+      const alerts = raw ? JSON.parse(raw) : {};
+      alerts[symbol] = { price, direction };
+      await env.NEPSE_KV.put("alerts", JSON.stringify(alerts));
+
+      const arrow = direction === "above" ? "▲" : "▼";
+      await send(env.TELEGRAM_TOKEN, chatId, [
+        `🔔 <b>Alert Set — ${symbol}</b>`,
+        DIV,
+        `Notify when price goes ${arrow} <b>Rs ${price.toLocaleString()}</b>`,
+        "",
+        "You'll get a message the next time the market update runs and the condition is met.",
+        "Use /alerts to see all active alerts.",
+      ].join("\n"));
+
+    // ── /alerts ───────────────────────────────────────────────────
+    } else if (text === "/alerts") {
+      const raw = await env.NEPSE_KV.get("alerts");
+      const alerts = raw ? JSON.parse(raw) : {};
+      const keys = Object.keys(alerts);
+      if (!keys.length) {
+        await send(env.TELEGRAM_TOKEN, chatId, [
+          "📭 <b>No active alerts</b>",
+          "",
+          "Set one with <code>/alert NABIL above 550</code>",
+        ].join("\n"));
+      } else {
+        const lines = ["🔔 <b>Active Alerts</b>", DIV];
+        for (const [sym, cfg] of Object.entries(alerts)) {
+          const arrow = cfg.direction === "above" ? "▲" : "▼";
+          lines.push(`  <b>${sym}</b>  ${arrow} Rs ${cfg.price.toLocaleString()}`);
+        }
+        lines.push("", "Use <code>/delalert NABIL</code> to remove one.");
+        await send(env.TELEGRAM_TOKEN, chatId, lines.join("\n"));
+      }
+
+    // ── /delalert NABIL ───────────────────────────────────────────
+    } else if (text.startsWith("/delalert")) {
+      const symbol = text.replace(/^\/delalert\s*/i, "").toUpperCase().trim();
+      if (!symbol) {
+        await send(env.TELEGRAM_TOKEN, chatId, "Usage: <code>/delalert NABIL</code>");
+        return new Response("OK");
+      }
+      const raw = await env.NEPSE_KV.get("alerts");
+      const alerts = raw ? JSON.parse(raw) : {};
+      if (alerts[symbol]) {
+        delete alerts[symbol];
+        await env.NEPSE_KV.put("alerts", JSON.stringify(alerts));
+        await send(env.TELEGRAM_TOKEN, chatId, `✅ Alert for <b>${symbol}</b> removed.`);
+      } else {
+        await send(env.TELEGRAM_TOKEN, chatId, `⚠️ No alert found for <b>${symbol}</b>.`);
+      }
+
+    // ── /portfolio NABIL:100:520,NICA:200:800 ────────────────────
+    } else if (text.startsWith("/portfolio") && !text.startsWith("/myportfolio")) {
+      const raw = text.replace(/^\/portfolio\s*/i, "").toUpperCase().trim();
+      if (!raw) {
+        await send(env.TELEGRAM_TOKEN, chatId, [
+          "⚠️ <b>Usage</b>",
+          "<code>/portfolio NABIL:100:520,NICA:200:800</code>",
+          "",
+          "Format: <code>SYMBOL:QUANTITY:BUY_PRICE</code>",
+          "Example: NABIL bought 100 shares at Rs 520 each.",
+        ].join("\n"));
+        return new Response("OK");
+      }
+
+      const portfolio = {};
+      const errors = [];
+      for (const entry of raw.split(",")) {
+        const [sym, qty, buy] = entry.trim().split(":");
+        if (!sym || !qty || !buy || isNaN(qty) || isNaN(buy)) {
+          errors.push(entry);
+          continue;
+        }
+        portfolio[sym] = { qty: parseInt(qty), buy: parseFloat(buy) };
+      }
+
+      if (errors.length) {
+        await send(env.TELEGRAM_TOKEN, chatId, `⚠️ Skipped invalid entries: ${errors.join(", ")}\nFormat: SYMBOL:QTY:BUY_PRICE`);
+      }
+
+      await env.NEPSE_KV.put("portfolio", JSON.stringify(portfolio));
+
+      const lines = ["💰 <b>Portfolio Saved</b>", DIV];
+      for (const [sym, cfg] of Object.entries(portfolio)) {
+        const total = (cfg.qty * cfg.buy).toLocaleString();
+        lines.push(`  <b>${sym}</b>  ${cfg.qty} shares @ Rs ${cfg.buy}  =  Rs ${total}`);
+      }
+      lines.push("", "P&L will appear in every market update.");
+      await send(env.TELEGRAM_TOKEN, chatId, lines.join("\n"));
+
+    // ── /myportfolio ──────────────────────────────────────────────
+    } else if (text === "/myportfolio") {
+      const raw = await env.NEPSE_KV.get("portfolio");
+      const portfolio = raw ? JSON.parse(raw) : {};
+      const keys = Object.keys(portfolio);
+      if (!keys.length) {
+        await send(env.TELEGRAM_TOKEN, chatId, [
+          "📭 <b>No portfolio set</b>",
+          "",
+          "Add holdings with:",
+          "<code>/portfolio NABIL:100:520,NICA:200:800</code>",
+        ].join("\n"));
+      } else {
+        const lines = ["💰 <b>Your Portfolio</b>", DIV];
+        let total = 0;
+        for (const [sym, cfg] of Object.entries(portfolio)) {
+          const invested = cfg.qty * cfg.buy;
+          total += invested;
+          lines.push(`  <b>${sym}</b>  ${cfg.qty} @ Rs ${cfg.buy}  (Rs ${invested.toLocaleString()})`);
+        }
+        lines.push(DIV, `  Total invested: <b>Rs ${total.toLocaleString()}</b>`);
+        lines.push("", "<i>Live P&L is shown in every market update.</i>");
+        await send(env.TELEGRAM_TOKEN, chatId, lines.join("\n"));
+      }
+
+    } else if (text.startsWith("/watch")) {
       const raw = text.replace(/^\/watch\s*/i, "").toUpperCase();
       const stocks = raw.split(",").map((s) => s.trim()).filter(Boolean);
 
@@ -153,30 +286,77 @@ export default {
         "Use <code>/watch</code> anytime to start again.",
       ].join("\n"));
 
-    } else if (text === "/help" || text === "/start") {
+    } else if (text === "/start") {
       await send(env.TELEGRAM_TOKEN, chatId, [
-        "📈 <b>NEPSE Market Bot</b>",
+        "👋 <b>Welcome to NEPSE Market Bot</b>",
         DIV,
-        "Live NEPSE updates during market hours",
-        "(Mon–Fri, 11 AM – 3 PM NST).",
+        "Your personal Nepal Stock Exchange assistant.",
         "",
-        "⚙️ <b>Commands</b>",
-        "<code>/check</code>                    — fetch live data right now",
-        "<code>/broker NABIL</code>             — broker activity + manipulation check",
-        "<code>/watch NABIL,NICA</code>         — track specific stocks",
-        "<code>/status</code>                   — show your watchlist",
-        "<code>/stop</code>                     — clear watchlist",
-        "<code>/help</code>                     — show this message",
+        "📈 <b>Live Market Updates</b>",
+        "    Every 30 min · 11 AM–3 PM NST · Mon–Fri",
+        "    Index · gainers · losers · volume spikes",
         "",
-        "📬 Auto market updates every 30 min (11 AM–3 PM NST).",
-        "📊 Auto broker report daily at 3:15 PM NST for your watchlist.",
+        "🔔 <b>Price Alerts</b>",
+        "    Get notified the moment a stock crosses",
+        "    your target price",
+        "",
+        "💰 <b>Portfolio Tracker</b>",
+        "    Live P&L on your holdings in every update",
+        "",
+        "⚡ <b>Circuit Breaker Alerts</b>",
+        "    Instant notification when any stock hits",
+        "    upper or lower circuit (±10%)",
+        "",
+        "🏦 <b>Broker Analysis</b>",
+        "    End-of-day breakdown of who bought/sold",
+        "    Detects accumulation, distribution,",
+        "    wash trading, and manipulation signals",
+        "",
+        "Type /help to see all commands.",
+        "",
+        "<i>Start with:</i>  <code>/watch NABIL,NICA,SANIMA</code>",
+      ].join("\n"));
+
+    } else if (text === "/help") {
+      await send(env.TELEGRAM_TOKEN, chatId, [
+        "📖 <b>NEPSE Market Bot — Commands</b>",
+        DIV,
+        "",
+        "📊 <b>Market Data</b>",
+        "<code>/check</code>  — live index, gainers, losers, watchlist",
+        "",
+        "🔔 <b>Price Alerts</b>",
+        "<code>/alert NABIL above 550</code>",
+        "<code>/alert NABIL below 520</code>",
+        "<code>/alerts</code>  — view all active alerts",
+        "<code>/delalert NABIL</code>  — remove an alert",
+        "",
+        "💰 <b>Portfolio</b>",
+        "<code>/portfolio NABIL:100:520,NICA:200:800</code>",
+        "    (symbol : quantity : buy price)",
+        "<code>/myportfolio</code>  — view your holdings",
+        "",
+        "🏦 <b>Broker Analysis</b>",
+        "<code>/broker NABIL</code>  — who bought/sold today",
+        "    Best after 3 PM NST market close",
+        "",
+        "👁 <b>Watchlist</b>",
+        "<code>/watch NABIL,NICA,SANIMA</code>",
+        "<code>/status</code>  — view watchlist",
+        "<code>/stop</code>  — clear watchlist",
+        "",
+        DIV,
+        "🕐 <b>Auto Schedules (Mon–Fri)</b>",
+        "  11:00 AM  Market open summary",
+        "  Every 30 min  Market update + alerts + P&L",
+        "   3:15 PM  Close summary + broker report",
       ].join("\n"));
 
     } else {
       await send(env.TELEGRAM_TOKEN, chatId, [
-        "❓ Unknown command.",
+        "❓ <b>Unknown command</b>",
         "",
-        "Type <code>/help</code> to see available commands.",
+        "Type /help to see all available commands.",
       ].join("\n"));
     }
 
