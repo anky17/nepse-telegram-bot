@@ -2,9 +2,9 @@ name: NEPSE Telegram Bot
 
 on:
   schedule:
-    # Every 30 min from 5:15 AM to 9:15 AM UTC = 11:00 AM to 3:00 PM NST
-    # NST = UTC+5:45, so UTC 5:15 = NST 11:00, UTC 9:15 = NST 15:00
-    - cron: "15 5 * * 1-5"   # 11:00 AM NST  (Mon–Fri)
+    # Every 30 min from 5:45 AM to 9:15 AM UTC = 11:30 AM to 3:00 PM NST
+    # NST = UTC+5:45, so UTC 5:45 = NST 11:30, UTC 9:15 = NST 15:00
+    # 11:00 AM open summary is handled by market_open.yml
     - cron: "45 5 * * 1-5"   # 11:30 AM NST
     - cron: "15 6 * * 1-5"   # 12:00 PM NST
     - cron: "45 6 * * 1-5"   # 12:30 PM NST

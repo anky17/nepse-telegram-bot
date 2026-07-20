@@ -258,6 +258,56 @@ export default {
         await send(env.TELEGRAM_TOKEN, chatId, "⚠️ Could not trigger analysis. Try again.");
       }
 
+    } else if (text === "/open") {
+      const ghRes = await fetch(
+        `https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/market_open.yml/dispatches`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "NEPSE-Bot",
+          },
+          body: JSON.stringify({ ref: "main" }),
+        }
+      );
+
+      if (ghRes.ok || ghRes.status === 204) {
+        await send(env.TELEGRAM_TOKEN, chatId, [
+          "⏳ <b>Fetching market open summary...</b>",
+          "",
+          "Summary will arrive in ~30–60 seconds.",
+        ].join("\n"));
+      } else {
+        await send(env.TELEGRAM_TOKEN, chatId, "⚠️ Could not trigger market open summary. Try again.");
+      }
+
+    } else if (text === "/close") {
+      const ghRes = await fetch(
+        `https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/broker_report.yml/dispatches`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "NEPSE-Bot",
+          },
+          body: JSON.stringify({ ref: "main", inputs: { symbols: "" } }),
+        }
+      );
+
+      if (ghRes.ok || ghRes.status === 204) {
+        await send(env.TELEGRAM_TOKEN, chatId, [
+          "⏳ <b>Fetching market close summary...</b>",
+          "",
+          "Close summary + broker analysis for your watchlist will arrive in ~30–60 seconds.",
+        ].join("\n"));
+      } else {
+        await send(env.TELEGRAM_TOKEN, chatId, "⚠️ Could not trigger market close summary. Try again.");
+      }
+
     } else if (text === "/status") {
       const stored = await env.NEPSE_KV.get("watch_stocks");
       if (stored) {
@@ -295,6 +345,7 @@ export default {
         "📈 <b>Live Market Updates</b>",
         "    Every 30 min · 11 AM–3 PM NST · Mon–Fri",
         "    Index · gainers · losers · volume spikes",
+        "    /open for open summary · /close for close summary",
         "",
         "🔔 <b>Price Alerts</b>",
         "    Get notified the moment a stock crosses",
@@ -324,6 +375,8 @@ export default {
         "",
         "📊 <b>Market Data</b>",
         "<code>/check</code>  — live index, gainers, losers, watchlist",
+        "<code>/open</code>   — market open summary (index + sector outlook)",
+        "<code>/close</code>  — market close summary + broker analysis for watchlist",
         "",
         "🔔 <b>Price Alerts</b>",
         "<code>/alert NABIL above 550</code>",
@@ -347,9 +400,9 @@ export default {
         "",
         DIV,
         "🕐 <b>Auto Schedules (Mon–Fri)</b>",
-        "  11:00 AM  Market open summary",
+        "  11:00 AM  Market open summary  (or /open anytime)",
         "  Every 30 min  Market update + alerts + P&L",
-        "   3:15 PM  Close summary + broker report",
+        "   3:15 PM  Close summary + broker report  (or /close anytime)",
       ].join("\n"));
 
     } else {
