@@ -3,6 +3,7 @@ import sys
 import requests
 from datetime import datetime
 import pytz
+from nepse_scraper import NepseScraper
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
@@ -11,9 +12,11 @@ CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "")
 CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "")
 CF_KV_NAMESPACE_ID = os.environ.get("CF_KV_NAMESPACE_ID", "")
 
+NST = pytz.timezone("Asia/Kathmandu")
+DIV = "─────────────────"
+
 
 def load_watch_stocks() -> list[str]:
-    """Read watchlist from Cloudflare KV; fall back to WATCH_STOCKS env var."""
     if CF_ACCOUNT_ID and CF_API_TOKEN and CF_KV_NAMESPACE_ID:
         url = (
             f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}"
@@ -25,68 +28,59 @@ def load_watch_stocks() -> list[str]:
                 return [s.strip().upper() for s in r.text.split(",") if s.strip()]
         except Exception as e:
             print(f"[WARN] Could not read KV watchlist: {e}")
-    # Fallback for local testing
     return [s.strip().upper() for s in os.environ.get("WATCH_STOCKS", "").split(",") if s.strip()]
-
-
-WATCH_STOCKS = load_watch_stocks()
-
-NEPSE_BASE = "https://nepalstock.com.np/api/nots"
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; NEPSEBot/1.0)",
-    "Referer": "https://nepalstock.com.np/",
-    "Accept": "application/json",
-}
-
-NST = pytz.timezone("Asia/Kathmandu")
-
-
-def is_market_open() -> bool:
-    now = datetime.now(NST)
-    if now.weekday() in (5, 6):  # Saturday=5, Sunday=6 are closed
-        return False
-    market_start = now.replace(hour=11, minute=0, second=0, microsecond=0)
-    market_end = now.replace(hour=15, minute=0, second=0, microsecond=0)
-    return market_start <= now <= market_end
-
-
-def fetch(url: str) -> dict | None:
-    try:
-        r = requests.get(url, headers=HEADERS, timeout=15)
-        r.raise_for_status()
-        return r.json()
-    except Exception as e:
-        print(f"[WARN] Failed to fetch {url}: {e}")
-        return None
-
-
-DIV = "─────────────────"
 
 
 def send_telegram(message: str):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
-    r = requests.post(url, json=payload, timeout=10)
+    r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}, timeout=10)
     if not r.ok:
         print(f"[ERROR] Telegram send failed: {r.text}")
 
 
-def tag(value: float, fmt: str = ".2f") -> str:
+def fval(d: dict, *keys, default=0.0) -> float:
+    for k in keys:
+        v = d.get(k)
+        if v is not None:
+            try:
+                return float(v)
+            except (ValueError, TypeError):
+                pass
+    return default
+
+
+def ival(d: dict, *keys, default=0) -> int:
+    for k in keys:
+        v = d.get(k)
+        if v is not None:
+            try:
+                return int(float(v))
+            except (ValueError, TypeError):
+                pass
+    return default
+
+
+def tag(value: float) -> str:
     sign = "+" if value >= 0 else ""
     icon = "▲" if value >= 0 else "▼"
-    return f"{icon} {sign}{value:{fmt}}"
+    return f"{icon} {sign}{value:.2f}"
 
 
-def build_index_section() -> str:
-    data = fetch(f"{NEPSE_BASE}/nepse-data/index")
-    if not data:
-        return f"📊 <b>NEPSE Index</b>\n{DIV}\n⚠️ Unavailable"
-
-    index = data if isinstance(data, dict) and "index" in data else data.get("data", data)
+def build_index_section(scraper: NepseScraper) -> str:
     try:
-        current = float(index.get("currentValue") or index.get("index") or 0)
-        change = float(index.get("change") or index.get("absoluteChange") or 0)
-        pct = float(index.get("perChange") or index.get("percentageChange") or 0)
+        indices = scraper.get_nepse_index()
+        # Main NEPSE index is typically the first entry or identifiable by name
+        main = next(
+            (i for i in indices if str(i.get("index", "")).upper() == "NEPSE"
+             or str(i.get("indexName", "")).upper() == "NEPSE"),
+            indices[0] if indices else None
+        )
+        if not main:
+            return f"📊 <b>NEPSE Index</b>\n{DIV}\n⚠️ No data"
+
+        current = fval(main, "currentValue", "value", "indexValue")
+        change = fval(main, "change", "absoluteChange", "pointChange")
+        pct = fval(main, "perChange", "percentageChange", "changePercent")
         icon = "🟢" if change >= 0 else "🔴"
         return "\n".join([
             f"📊 <b>NEPSE Index</b>",
@@ -94,19 +88,17 @@ def build_index_section() -> str:
             f"{icon}  <b>{current:,.2f}</b>   {tag(change)} pts  ({tag(pct)}%)",
         ])
     except Exception as e:
-        print(f"[WARN] Index parse error: {e} | raw: {data}")
-        return f"📊 <b>NEPSE Index</b>\n{DIV}\n⚠️ Parse error"
+        print(f"[WARN] Index error: {e}")
+        return f"📊 <b>NEPSE Index</b>\n{DIV}\n⚠️ Unavailable"
 
 
-def build_market_summary_section() -> str:
-    data = fetch(f"{NEPSE_BASE}/market-open")
-    if not data:
-        return ""
+def build_summary_section(scraper: NepseScraper) -> str:
     try:
-        d = data.get("data") or data
-        turnover = float(d.get("totalTurnover") or 0)
-        shares = int(d.get("totalTradedShares") or 0)
-        txns = int(d.get("totalTransactions") or 0)
+        raw = scraper.call_endpoint("market_summary_api")
+        d = raw if isinstance(raw, dict) else (raw[0] if raw else {})
+        turnover = fval(d, "totalTurnover", "turnover")
+        shares = ival(d, "totalTradedShares", "tradedShares", "totalShares")
+        txns = ival(d, "totalTransactions", "transactions")
         return "\n".join([
             f"\n💼 <b>Market Summary</b>",
             DIV,
@@ -115,120 +107,106 @@ def build_market_summary_section() -> str:
             f"  Transactions  {txns:,}",
         ])
     except Exception as e:
-        print(f"[WARN] Summary parse error: {e}")
+        print(f"[WARN] Summary error: {e}")
         return ""
 
 
-def build_gainers_losers_section() -> str:
-    gainers_data = fetch(f"{NEPSE_BASE}/top25GainerLoser/top25Gainer")
-    losers_data = fetch(f"{NEPSE_BASE}/top25GainerLoser/top25Loser")
+def build_gainers_losers_section(scraper: NepseScraper) -> str:
+    lines = []
 
-    def parse_list(data, header, icon, top_n=5):
-        if not data:
+    def section(category: str, header: str, icon: str):
+        try:
+            items = scraper.get_top_stocks(category=category)
+            rows = [f"\n{icon} <b>{header}</b>", DIV]
+            for i, s in enumerate(items[:5], 1):
+                sym = s.get("symbol") or s.get("stockSymbol") or "?"
+                ltp = fval(s, "lastTradedPrice", "ltp", "closePrice")
+                pct = fval(s, "percentageChange", "perChange", "pointChange")
+                sign = "+" if pct >= 0 else ""
+                rows.append(f"  {i}.  <b>{sym:<10}</b> {ltp:>8.1f}   <code>{sign}{pct:.2f}%</code>")
+            return rows
+        except Exception as e:
+            print(f"[WARN] {category} error: {e}")
             return [f"\n{icon} <b>{header}</b>", DIV, "⚠️ Unavailable"]
-        items = data.get("data") or data if isinstance(data, dict) else data
-        if isinstance(items, dict):
-            items = list(items.values())[0] if items else []
-        rows = [f"\n{icon} <b>{header}</b>", DIV]
-        for i, s in enumerate(items[:top_n], 1):
-            sym = s.get("symbol") or s.get("stockSymbol") or "?"
-            pct = float(s.get("pointChange") or s.get("percentageChange") or 0)
-            ltp = float(s.get("lastTradedPrice") or s.get("ltp") or 0)
-            sign = "+" if pct >= 0 else ""
-            rows.append(f"  {i}.  <b>{sym:<10}</b> {ltp:>8.1f}   <code>{sign}{pct:.2f}%</code>")
-        return rows
 
-    lines = parse_list(gainers_data, "Top Gainers", "🟢")
-    lines += parse_list(losers_data, "Top Losers", "🔴")
+    lines += section("top_gainer", "Top Gainers", "🟢")
+    lines += section("top_loser", "Top Losers", "🔴")
     return "\n".join(lines)
 
 
-def build_watch_stocks_section() -> str:
-    if not WATCH_STOCKS:
+def build_watchlist_section(scraper: NepseScraper, watch_stocks: list[str]) -> str:
+    if not watch_stocks:
         return ""
 
     lines = [f"\n👁 <b>Your Watchlist</b>", DIV]
-    for symbol in WATCH_STOCKS:
-        data = fetch(f"{NEPSE_BASE}/security/symbol/{symbol}")
-        if not data:
-            lines.append(f"  ⚠️ {symbol}: unavailable")
-            continue
+    for symbol in watch_stocks:
         try:
-            d = data.get("data") or data
-            if isinstance(d, list):
-                d = d[0]
-            ltp = float(d.get("lastTradedPrice") or d.get("ltp") or 0)
-            change = float(d.get("change") or d.get("pointChange") or 0)
-            pct = float(d.get("perChange") or d.get("percentageChange") or 0)
-            vol = int(d.get("totalTradeQuantity") or d.get("volume") or 0)
+            info = scraper.get_ticker_info(symbol)
+            # get_ticker_info can return the dict directly or nested under 'security'
+            d = info.get("security", info) if isinstance(info, dict) else {}
+            sec = info  # also check top-level fields
+
+            ltp = fval(sec, "lastTradedPrice", "ltp") or fval(d, "lastTradedPrice", "ltp")
+            pct = fval(sec, "percentageChange", "perChange") or fval(d, "percentageChange", "perChange")
+            change = fval(sec, "change", "pointChange") or fval(d, "change", "pointChange")
+            vol = ival(sec, "tradedShares", "totalTradedShares", "volume") or ival(d, "tradedShares", "volume")
+
             icon = "🟢" if change >= 0 else "🔴"
             sign = "+" if change >= 0 else ""
             lines.append(
                 f"  {icon} <b>{symbol:<10}</b> {ltp:>8.2f}   <code>{sign}{pct:.2f}%</code>   Vol {vol:,}"
             )
         except Exception as e:
-            print(f"[WARN] {symbol} parse error: {e}")
-            lines.append(f"  ⚠️ {symbol}: parse error")
+            print(f"[WARN] Watchlist {symbol} error: {e}")
+            lines.append(f"  ⚠️ {symbol}: unavailable")
     return "\n".join(lines)
 
 
-def build_broker_floorsheet_section() -> str:
-    if not WATCH_STOCKS:
+def build_broker_section(scraper: NepseScraper, watch_stocks: list[str]) -> str:
+    if not watch_stocks:
         return ""
 
     lines = [f"\n🏦 <b>Broker Activity</b>", DIV]
+    found = False
 
-    for symbol in WATCH_STOCKS:
-        sec_data = fetch(f"{NEPSE_BASE}/security/symbol/{symbol}")
-        if not sec_data:
-            continue
+    for symbol in watch_stocks:
         try:
-            d = sec_data.get("data") or sec_data
-            if isinstance(d, list):
-                d = d[0]
-            sec_id = d.get("id") or d.get("securityId")
-        except Exception:
-            continue
+            stat = scraper.get_security_daily_trade_stat(symbol)
+            # stat is a dict; look for broker fields
+            buyers = stat.get("topBuyers") or stat.get("buyerBrokers") or []
+            sellers = stat.get("topSellers") or stat.get("sellerBrokers") or []
 
-        if not sec_id:
-            continue
-
-        floor_data = fetch(f"{NEPSE_BASE}/floorsheet/{sec_id}?&startDate=&endDate=&page=0&size=50&sort=contractId,desc")
-        if not floor_data:
-            continue
-
-        try:
-            items = floor_data.get("floorsheets", {}).get("content") or []
-            if not items:
-                lines.append(f"\n  <b>{symbol}</b>: no trades yet today")
+            if not buyers and not sellers:
                 continue
 
-            broker_buy: dict[str, float] = {}
-            broker_sell: dict[str, float] = {}
-            for row in items:
-                buyer = str(row.get("buyerMemberId") or row.get("buyerBrokerNo") or "?")
-                seller = str(row.get("sellerMemberId") or row.get("sellerBrokerNo") or "?")
-                qty = float(row.get("contractQuantity") or 0)
-                broker_buy[buyer] = broker_buy.get(buyer, 0) + qty
-                broker_sell[seller] = broker_sell.get(seller, 0) + qty
-
-            top_buyers = sorted(broker_buy.items(), key=lambda x: x[1], reverse=True)[:3]
-            top_sellers = sorted(broker_sell.items(), key=lambda x: x[1], reverse=True)[:3]
-
+            found = True
             lines.append(f"\n  <b>{symbol}</b>")
-            lines.append("  🟢 Buy  — " + "   ".join(f"B{b} <code>{q:,.0f}</code>" for b, q in top_buyers))
-            lines.append("  🔴 Sell — " + "   ".join(f"B{s} <code>{q:,.0f}</code>" for s, q in top_sellers))
+            if buyers:
+                b_str = "   ".join(
+                    f"B{b.get('brokerNumber', b.get('memberCode', '?'))} <code>{int(b.get('quantity', 0)):,}</code>"
+                    for b in buyers[:3]
+                )
+                lines.append(f"  🟢 Buy  — {b_str}")
+            if sellers:
+                s_str = "   ".join(
+                    f"B{s.get('brokerNumber', s.get('memberCode', '?'))} <code>{int(s.get('quantity', 0)):,}</code>"
+                    for s in sellers[:3]
+                )
+                lines.append(f"  🔴 Sell — {s_str}")
         except Exception as e:
-            print(f"[WARN] Floorsheet parse error for {symbol}: {e}")
+            print(f"[WARN] Broker stat {symbol} error: {e}")
 
-    return "\n".join(lines) if len(lines) > 2 else ""
+    return "\n".join(lines) if found else ""
 
 
 def main():
+    watch_stocks = load_watch_stocks()
     now_nst = datetime.now(NST)
     time_str = now_nst.strftime("%a, %d %b %Y  %I:%M %p NST")
 
-    if not is_market_open():
+    scraper = NepseScraper(verify_ssl=False)
+
+    if not scraper.is_market_open():
         print("Market is closed. Skipping.")
         sys.exit(0)
 
@@ -237,15 +215,15 @@ def main():
     sections = [
         f"📈 <b>NEPSE Market Update</b>",
         f"<i>{time_str}</i>",
-        build_index_section(),
-        build_market_summary_section(),
-        build_gainers_losers_section(),
-        build_watch_stocks_section(),
-        build_broker_floorsheet_section(),
+        build_index_section(scraper),
+        build_summary_section(scraper),
+        build_gainers_losers_section(scraper),
+        build_watchlist_section(scraper, watch_stocks),
+        build_broker_section(scraper, watch_stocks),
         f"\n<i>Next update in 30 min</i>",
     ]
 
-    message = "\n".join(s for s in sections if s is not None)
+    message = "\n".join(s for s in sections if s)
     send_telegram(message)
     print("Update sent to Telegram.")
 

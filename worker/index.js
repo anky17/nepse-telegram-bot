@@ -1,10 +1,4 @@
-const NEPSE = "https://nepalstock.com.np/api/nots";
 const DIV = "─────────────────";
-const HEADERS = {
-  "User-Agent": "Mozilla/5.0 (compatible; NEPSEBot/1.0)",
-  "Referer": "https://nepalstock.com.np/",
-  "Accept": "application/json",
-};
 
 export default {
   async fetch(request, env) {
@@ -54,8 +48,7 @@ export default {
       ].join("\n"));
 
     } else if (text === "/check" || text === "/now") {
-      const isOpen = isMarketOpen();
-      if (!isOpen) {
+      if (!isMarketOpen()) {
         await send(env.TELEGRAM_TOKEN, chatId, [
           "🔴 <b>Market is Closed</b>",
           DIV,
@@ -66,12 +59,30 @@ export default {
         return new Response("OK");
       }
 
-      await send(env.TELEGRAM_TOKEN, chatId, "⏳ Fetching live NEPSE data...");
-      await typing(env.TELEGRAM_TOKEN, chatId);
+      // Trigger GitHub Actions to run the Python bot on-demand
+      const ghRes = await fetch(
+        `https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/nepse_bot.yml/dispatches`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "NEPSE-Bot",
+          },
+          body: JSON.stringify({ ref: "main" }),
+        }
+      );
 
-      const watchlist = (await env.NEPSE_KV.get("watch_stocks") || "").split(",").map(s => s.trim()).filter(Boolean);
-      const msg = await buildMarketMessage(watchlist);
-      await send(env.TELEGRAM_TOKEN, chatId, msg);
+      if (ghRes.ok || ghRes.status === 204) {
+        await send(env.TELEGRAM_TOKEN, chatId, [
+          "⏳ <b>Fetching live data...</b>",
+          "",
+          "Update will arrive in about 30–60 seconds.",
+        ].join("\n"));
+      } else {
+        await send(env.TELEGRAM_TOKEN, chatId, "⚠️ Could not trigger update. Try again shortly.");
+      }
 
     } else if (text === "/status") {
       const stored = await env.NEPSE_KV.get("watch_stocks");
@@ -145,117 +156,6 @@ function isMarketOpen() {
   const marketClose = 15 * 60;  // 3:00 PM
   const nstTimeOfDay = nstMinutes % (24 * 60);
   return nstTimeOfDay >= marketOpen && nstTimeOfDay <= marketClose;
-}
-
-// ── NEPSE data fetchers ───────────────────────────────────────────
-async function apiFetch(path) {
-  try {
-    const r = await fetch(`${NEPSE}${path}`, { headers: HEADERS });
-    if (!r.ok) return null;
-    return await r.json();
-  } catch {
-    return null;
-  }
-}
-
-function tagChange(value) {
-  const sign = value >= 0 ? "+" : "";
-  const icon = value >= 0 ? "▲" : "▼";
-  return `${icon} ${sign}${value.toFixed(2)}`;
-}
-
-async function buildMarketMessage(watchlist = []) {
-  const now = new Date();
-  const nst = new Date(now.getTime() + (5 * 60 + 45) * 60 * 1000);
-  const timeStr = nst.toUTCString().replace("GMT", "NST").slice(0, -4);
-
-  const [indexData, summaryData, gainersData, losersData] = await Promise.all([
-    apiFetch("/nepse-data/index"),
-    apiFetch("/market-open"),
-    apiFetch("/top25GainerLoser/top25Gainer"),
-    apiFetch("/top25GainerLoser/top25Loser"),
-  ]);
-
-  const lines = [
-    "📈 <b>NEPSE Live Update</b>",
-    `<i>${timeStr}</i>`,
-  ];
-
-  // Index
-  lines.push(`\n📊 <b>NEPSE Index</b>\n${DIV}`);
-  try {
-    const d = indexData?.data ?? indexData;
-    const val = parseFloat(d?.currentValue ?? d?.index ?? 0);
-    const chg = parseFloat(d?.change ?? d?.absoluteChange ?? 0);
-    const pct = parseFloat(d?.perChange ?? d?.percentageChange ?? 0);
-    const icon = chg >= 0 ? "🟢" : "🔴";
-    lines.push(`${icon}  <b>${val.toLocaleString("en", { minimumFractionDigits: 2 })}</b>   ${tagChange(chg)} pts  (${tagChange(pct)}%)`);
-  } catch {
-    lines.push("⚠️ Unavailable");
-  }
-
-  // Market summary
-  try {
-    const d = summaryData?.data ?? summaryData;
-    const turnover = parseFloat(d?.totalTurnover ?? 0);
-    const shares = parseInt(d?.totalTradedShares ?? 0);
-    const txns = parseInt(d?.totalTransactions ?? 0);
-    lines.push(`\n💼 <b>Market Summary</b>\n${DIV}`);
-    lines.push(`  Turnover      Rs ${(turnover / 1_000_000).toFixed(2)}M`);
-    lines.push(`  Shares Traded ${shares.toLocaleString()}`);
-    lines.push(`  Transactions  ${txns.toLocaleString()}`);
-  } catch { /* skip */ }
-
-  // Gainers
-  lines.push(`\n🟢 <b>Top Gainers</b>\n${DIV}`);
-  try {
-    const items = gainersData?.data ?? gainersData ?? [];
-    const list = Array.isArray(items) ? items : Object.values(items)[0] ?? [];
-    for (const [i, s] of list.slice(0, 5).entries()) {
-      const sym = s.symbol ?? s.stockSymbol ?? "?";
-      const ltp = parseFloat(s.lastTradedPrice ?? s.ltp ?? 0);
-      const pct = parseFloat(s.pointChange ?? s.percentageChange ?? 0);
-      lines.push(`  ${i + 1}.  <b>${sym.padEnd(10)}</b> ${ltp.toFixed(1).padStart(8)}   <code>+${pct.toFixed(2)}%</code>`);
-    }
-  } catch { lines.push("⚠️ Unavailable"); }
-
-  // Losers
-  lines.push(`\n🔴 <b>Top Losers</b>\n${DIV}`);
-  try {
-    const items = losersData?.data ?? losersData ?? [];
-    const list = Array.isArray(items) ? items : Object.values(items)[0] ?? [];
-    for (const [i, s] of list.slice(0, 5).entries()) {
-      const sym = s.symbol ?? s.stockSymbol ?? "?";
-      const ltp = parseFloat(s.lastTradedPrice ?? s.ltp ?? 0);
-      const pct = parseFloat(s.pointChange ?? s.percentageChange ?? 0);
-      lines.push(`  ${i + 1}.  <b>${sym.padEnd(10)}</b> ${ltp.toFixed(1).padStart(8)}   <code>${pct.toFixed(2)}%</code>`);
-    }
-  } catch { lines.push("⚠️ Unavailable"); }
-
-  // Watchlist
-  if (watchlist.length) {
-    lines.push(`\n👁 <b>Your Watchlist</b>\n${DIV}`);
-    const stockFetches = watchlist.map((sym) => apiFetch(`/security/symbol/${sym}`));
-    const results = await Promise.all(stockFetches);
-    for (const [i, data] of results.entries()) {
-      const sym = watchlist[i];
-      try {
-        let d = data?.data ?? data;
-        if (Array.isArray(d)) d = d[0];
-        const ltp = parseFloat(d?.lastTradedPrice ?? d?.ltp ?? 0);
-        const chg = parseFloat(d?.change ?? d?.pointChange ?? 0);
-        const pct = parseFloat(d?.perChange ?? d?.percentageChange ?? 0);
-        const vol = parseInt(d?.totalTradeQuantity ?? d?.volume ?? 0);
-        const icon = chg >= 0 ? "🟢" : "🔴";
-        const sign = chg >= 0 ? "+" : "";
-        lines.push(`  ${icon} <b>${sym.padEnd(10)}</b> ${ltp.toFixed(2).padStart(8)}   <code>${sign}${pct.toFixed(2)}%</code>   Vol ${vol.toLocaleString()}`);
-      } catch {
-        lines.push(`  ⚠️ ${sym}: unavailable`);
-      }
-    }
-  }
-
-  return lines.join("\n");
 }
 
 // ── Telegram helpers ──────────────────────────────────────────────
