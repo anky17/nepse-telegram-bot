@@ -7,8 +7,29 @@ import pytz
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 
-# Add comma-separated symbols here, e.g. "NABIL,NICA,SANIMA"
-WATCH_STOCKS = [s.strip().upper() for s in os.environ.get("WATCH_STOCKS", "").split(",") if s.strip()]
+CF_ACCOUNT_ID = os.environ.get("CF_ACCOUNT_ID", "")
+CF_API_TOKEN = os.environ.get("CF_API_TOKEN", "")
+CF_KV_NAMESPACE_ID = os.environ.get("CF_KV_NAMESPACE_ID", "")
+
+
+def load_watch_stocks() -> list[str]:
+    """Read watchlist from Cloudflare KV; fall back to WATCH_STOCKS env var."""
+    if CF_ACCOUNT_ID and CF_API_TOKEN and CF_KV_NAMESPACE_ID:
+        url = (
+            f"https://api.cloudflare.com/client/v4/accounts/{CF_ACCOUNT_ID}"
+            f"/storage/kv/namespaces/{CF_KV_NAMESPACE_ID}/values/watch_stocks"
+        )
+        try:
+            r = requests.get(url, headers={"Authorization": f"Bearer {CF_API_TOKEN}"}, timeout=10)
+            if r.ok and r.text:
+                return [s.strip().upper() for s in r.text.split(",") if s.strip()]
+        except Exception as e:
+            print(f"[WARN] Could not read KV watchlist: {e}")
+    # Fallback for local testing
+    return [s.strip().upper() for s in os.environ.get("WATCH_STOCKS", "").split(",") if s.strip()]
+
+
+WATCH_STOCKS = load_watch_stocks()
 
 NEPSE_BASE = "https://nepalstock.com.np/api/nots"
 HEADERS = {

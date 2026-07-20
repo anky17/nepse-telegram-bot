@@ -1,0 +1,7 @@
+name = "nepse-telegram-bot"
+main = "index.js"
+compatibility_date = "2024-09-23"
+
+[[kv_namespaces]]
+binding = "NEPSE_KV"
+id = "a8197786d4bb4c79a1c32cd3d6d6a9bf"
