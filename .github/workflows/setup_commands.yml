@@ -18,6 +18,7 @@ jobs:
             {"command": "stock",     "description": "Stock details — e.g. /stock NABIL"},
             {"command": "open",      "description": "Market open summary"},
             {"command": "close",     "description": "Market close summary"},
+            {"command": "broker",    "description": "Broker analysis — e.g. /broker NABIL"},
             {"command": "threshold", "description": "Index alert — e.g. /threshold above 2800"},
             {"command": "rules",     "description": "Group rules"},
             {"command": "help",      "description": "Show all commands"}

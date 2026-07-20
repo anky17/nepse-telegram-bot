@@ -93,6 +93,23 @@ export default {
         ? `⏳ <b>Fetching ${symbols.join(", ")}...</b>\n\nStock details will arrive in ~30–60 seconds.`
         : "⚠️ Could not fetch stock info. Try again.");
 
+    } else if (text.startsWith("/broker")) {
+      const symbols = parseSymbols(text, "/broker");
+      if (!symbols.length) {
+        await send(env.TELEGRAM_TOKEN, chatId, [
+          "⚠️ <b>Missing symbol</b>",
+          "",
+          "Usage: <code>/broker NABIL</code> or <code>/broker NABIL,NICA</code>",
+          "Shows top buyers, sellers, accumulators and distributors.",
+          "<i>Uses daily floorsheet data — available after market close.</i>",
+        ].join("\n"));
+        return new Response("OK");
+      }
+      const ok = await dispatchWorkflow(env, "broker_floorsheet.yml", { symbols: symbols.join(",") });
+      await send(env.TELEGRAM_TOKEN, chatId, ok
+        ? `⏳ <b>Analyzing ${symbols.join(", ")}...</b>\n\nBroker report will arrive in ~30–60 seconds.`
+        : "⚠️ Could not trigger analysis. Try again.");
+
     } else if (text === "/open") {
       const ok = await dispatchWorkflow(env, "market_open.yml", {});
       await send(env.TELEGRAM_TOKEN, chatId, ok
@@ -106,12 +123,20 @@ export default {
         : "⚠️ Could not trigger market close summary. Try again.");
 
     } else if (text === "/top") {
+      if (!isMarketOpen()) {
+        await send(env.TELEGRAM_TOKEN, chatId, "🔴 <b>Market is Closed</b>\n\nTop stocks data is only available during trading hours.\nNEPSE trades Monday–Friday, 11:00 AM – 3:00 PM NST.");
+        return new Response("OK");
+      }
       const ok = await dispatchWorkflow(env, "top_stocks.yml", { mode: "top" });
       await send(env.TELEGRAM_TOKEN, chatId, ok
         ? "⏳ <b>Fetching top stocks...</b>\n\nTop gainers, losers & turnover will arrive in ~30–60 seconds."
         : "⚠️ Could not fetch top stocks. Try again.");
 
     } else if (text === "/sector") {
+      if (!isMarketOpen()) {
+        await send(env.TELEGRAM_TOKEN, chatId, "🔴 <b>Market is Closed</b>\n\nSector data is only available during trading hours.\nNEPSE trades Monday–Friday, 11:00 AM – 3:00 PM NST.");
+        return new Response("OK");
+      }
       const ok = await dispatchWorkflow(env, "top_stocks.yml", { mode: "sector" });
       await send(env.TELEGRAM_TOKEN, chatId, ok
         ? "⏳ <b>Fetching sector performance...</b>\n\nSector breakdown will arrive in ~30–60 seconds."
@@ -329,6 +354,10 @@ export default {
         "<code>/stock NABIL</code>  — LTP, OHLC, volume, fundamentals",
         "<code>/open</code>      — market open summary",
         "<code>/close</code>     — market close + broker analysis",
+        "",
+        "🏦 <b>Broker Analysis</b>",
+        "<code>/broker NABIL</code>  — top buyers/sellers from daily floorsheet",
+        "    Available after market close",
         "",
         "📊 <b>Index Alerts</b>",
         "<code>/threshold above 2800</code>",
