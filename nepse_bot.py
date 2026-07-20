@@ -76,6 +76,42 @@ def tag(value: float) -> str:
 
 # ── Alert & circuit breaker checks ───────────────────────────────
 
+def check_index_threshold(scraper: NepseScraper) -> None:
+    threshold = kv_get_json("index_threshold", {})
+    if not threshold:
+        return
+    try:
+        indices = scraper.get_nepse_index()
+        main = next((i for i in indices if i.get("id") == 58), None)
+        if not main:
+            return
+        current = fval(main, "currentValue")
+        today = datetime.now(NST).strftime("%Y-%m-%d")
+        alerted = kv_get_json("threshold_alerted", {})
+
+        above = float(threshold.get("above") or 0)
+        if above and current >= above and alerted.get("above") != today:
+            send_telegram(
+                f"📈 <b>Index Alert — Upper Threshold</b>\n{DIV}\n"
+                f"NEPSE Index: <b>{current:,.2f}</b>\n"
+                f"Crossed above: <b>{above:,.2f}</b>"
+            )
+            alerted["above"] = today
+            kv_put_json("threshold_alerted", alerted)
+
+        below = float(threshold.get("below") or 0)
+        if below and current <= below and alerted.get("below") != today:
+            send_telegram(
+                f"📉 <b>Index Alert — Lower Threshold</b>\n{DIV}\n"
+                f"NEPSE Index: <b>{current:,.2f}</b>\n"
+                f"Dropped below: <b>{below:,.2f}</b>"
+            )
+            alerted["below"] = today
+            kv_put_json("threshold_alerted", alerted)
+    except Exception as e:
+        print(f"[WARN] Threshold check error: {e}")
+
+
 def check_alerts_and_circuits(today_prices: list[dict]) -> None:
     """Fire price alerts and circuit breaker notifications immediately."""
     price_map = {s.get("symbol"): s for s in today_prices if s.get("symbol")}
@@ -351,7 +387,8 @@ def main():
     except Exception as e:
         print(f"[WARN] get_today_price failed: {e}")
 
-    # Fire alerts + circuit breakers immediately (separate messages)
+    # Fire alerts, circuit breakers, and index thresholds (separate messages)
+    check_index_threshold(scraper)
     if today_prices:
         check_alerts_and_circuits(today_prices)
 
