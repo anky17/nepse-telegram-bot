@@ -15,19 +15,14 @@ jobs:
             -H "Content-Type: application/json" \
             -d '{
               "commands": [
-                {"command": "check",       "description": "Live index, gainers, losers, watchlist"},
-                {"command": "stock",       "description": "Stock details — e.g. /stock NABIL"},
-                {"command": "open",        "description": "Market open summary (index + sectors)"},
-                {"command": "close",       "description": "Market close summary + broker analysis"},
-                {"command": "broker",      "description": "Broker buy/sell analysis — e.g. /broker NABIL"},
-                {"command": "alert",       "description": "Set price alert — e.g. /alert NABIL above 550"},
-                {"command": "alerts",      "description": "View all active price alerts"},
-                {"command": "delalert",    "description": "Remove a price alert — e.g. /delalert NABIL"},
-                {"command": "portfolio",   "description": "Set portfolio — e.g. /portfolio NABIL:100:520"},
-                {"command": "myportfolio", "description": "View your portfolio holdings"},
-                {"command": "watch",       "description": "Set watchlist — e.g. /watch NABIL,NICA"},
-                {"command": "status",      "description": "View your watchlist"},
-                {"command": "stop",        "description": "Clear your watchlist"},
-                {"command": "help",        "description": "Show all commands"}
+                {"command": "check",     "description": "Live index, gainers and losers"},
+                {"command": "top",       "description": "Top gainers, losers and turnover"},
+                {"command": "sector",    "description": "Sector-wise performance"},
+                {"command": "stock",     "description": "Stock details — e.g. /stock NABIL"},
+                {"command": "open",      "description": "Market open summary"},
+                {"command": "close",     "description": "Market close summary"},
+                {"command": "threshold", "description": "Index alert — e.g. /threshold above 2800"},
+                {"command": "rules",     "description": "Group rules"},
+                {"command": "help",      "description": "Show all commands"}
               ]
             }'
