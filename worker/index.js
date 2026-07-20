@@ -123,10 +123,6 @@ export default {
         : "⚠️ Could not trigger market close summary. Try again.");
 
     } else if (text === "/top") {
-      if (!isMarketOpen()) {
-        await send(env.TELEGRAM_TOKEN, chatId, "🔴 <b>Market is Closed</b>\n\nTop stocks data is only available during trading hours.\nNEPSE trades Monday–Friday, 11:00 AM – 3:00 PM NST.");
-        return new Response("OK");
-      }
       const ok = await dispatchWorkflow(env, "top_stocks.yml", { mode: "top" });
       await send(env.TELEGRAM_TOKEN, chatId, ok
         ? "⏳ <b>Fetching top stocks...</b>\n\nTop gainers, losers & turnover will arrive in ~30–60 seconds."
@@ -134,7 +130,7 @@ export default {
 
     } else if (text === "/sector") {
       if (!isMarketOpen()) {
-        await send(env.TELEGRAM_TOKEN, chatId, "🔴 <b>Market is Closed</b>\n\nSector data is only available during trading hours.\nNEPSE trades Monday–Friday, 11:00 AM – 3:00 PM NST.");
+        await send(env.TELEGRAM_TOKEN, chatId, "🔴 <b>Market is Closed</b>\n\nSector performance resets after close — data will be live again tomorrow at 11:00 AM NST.");
         return new Response("OK");
       }
       const ok = await dispatchWorkflow(env, "top_stocks.yml", { mode: "sector" });

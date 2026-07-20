@@ -1,18 +1,10 @@
 import os
 import sys
-import urllib3
-import requests
 from datetime import datetime
-import pytz
 from nepse_scraper import NepseScraper
-from kv_utils import kv_get_json, kv_put_json
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-NST = pytz.timezone("Asia/Kathmandu")
-DIV = "─────────────────"
+from nepse.common import get_scraper, DIV, NST, fval, ival, tag
+from nepse.telegram import send
+from nepse.kv import get as kv_get, get_json as kv_get_json, put_json as kv_put_json
 
 
 # ── KV loaders ────────────────────────────────────────────────────
@@ -20,8 +12,6 @@ DIV = "─────────────────"
 def load_watch_stocks() -> list[str]:
     raw = kv_get_json("watch_stocks", default=None)
     if raw is None:
-        # watch_stocks is stored as plain string, not JSON
-        from kv_utils import kv_get
         text = kv_get("watch_stocks", "")
         return [s.strip().upper() for s in text.split(",") if s.strip()]
     if isinstance(raw, list):
@@ -33,45 +23,6 @@ def load_alerts() -> dict:
 
 def load_portfolio() -> dict:
     return kv_get_json("portfolio", {})
-
-
-# ── Telegram ──────────────────────────────────────────────────────
-
-def send_telegram(message: str):
-    r = requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"},
-        timeout=10,
-    )
-    if not r.ok:
-        print(f"[ERROR] Telegram send failed: {r.text}")
-
-
-# ── Field helpers ─────────────────────────────────────────────────
-
-def fval(d: dict, *keys, default=0.0) -> float:
-    for k in keys:
-        v = d.get(k)
-        if v is not None:
-            try:
-                return float(v)
-            except (ValueError, TypeError):
-                pass
-    return default
-
-def ival(d: dict, *keys, default=0) -> int:
-    for k in keys:
-        v = d.get(k)
-        if v is not None:
-            try:
-                return int(float(v))
-            except (ValueError, TypeError):
-                pass
-    return default
-
-def tag(value: float) -> str:
-    sign = "+" if value >= 0 else ""
-    return f"{'▲' if value >= 0 else '▼'} {sign}{value:.2f}"
 
 
 # ── Alert & circuit breaker checks ───────────────────────────────
@@ -91,7 +42,7 @@ def check_index_threshold(scraper: NepseScraper) -> None:
 
         above = float(threshold.get("above") or 0)
         if above and current >= above and alerted.get("above") != today:
-            send_telegram(
+            send(
                 f"📈 <b>Index Alert — Upper Threshold</b>\n{DIV}\n"
                 f"NEPSE Index: <b>{current:,.2f}</b>\n"
                 f"Crossed above: <b>{above:,.2f}</b>"
@@ -101,7 +52,7 @@ def check_index_threshold(scraper: NepseScraper) -> None:
 
         below = float(threshold.get("below") or 0)
         if below and current <= below and alerted.get("below") != today:
-            send_telegram(
+            send(
                 f"📉 <b>Index Alert — Lower Threshold</b>\n{DIV}\n"
                 f"NEPSE Index: <b>{current:,.2f}</b>\n"
                 f"Dropped below: <b>{below:,.2f}</b>"
@@ -113,10 +64,8 @@ def check_index_threshold(scraper: NepseScraper) -> None:
 
 
 def check_alerts_and_circuits(today_prices: list[dict]) -> None:
-    """Fire price alerts and circuit breaker notifications immediately."""
     price_map = {s.get("symbol"): s for s in today_prices if s.get("symbol")}
 
-    # ── Price alerts ──────────────────────────────────────────────
     alerts = load_alerts()
     triggered = []
 
@@ -131,7 +80,7 @@ def check_alerts_and_circuits(today_prices: list[dict]) -> None:
         hit = (direction == "above" and ltp >= target) or (direction == "below" and ltp <= target)
         if hit:
             arrow = "▲" if direction == "above" else "▼"
-            send_telegram(
+            send(
                 f"🔔 <b>Price Alert — {symbol}</b>\n"
                 f"{DIV}\n"
                 f"Target {arrow} Rs {target:,.2f} reached!\n"
@@ -144,7 +93,6 @@ def check_alerts_and_circuits(today_prices: list[dict]) -> None:
         kv_put_json("alerts", remaining)
         print(f"Alerts fired and removed: {triggered}")
 
-    # ── Circuit breakers ──────────────────────────────────────────
     alerted_today = kv_get_json("alerted_circuits", {})
     new_circuits = []
 
@@ -159,7 +107,7 @@ def check_alerts_and_circuits(today_prices: list[dict]) -> None:
             direction = "UPPER CIRCUIT" if pct > 0 else "LOWER CIRCUIT"
             icon = "🚨" if pct > 0 else "💥"
             sign = "+" if pct > 0 else ""
-            send_telegram(
+            send(
                 f"{icon} <b>{direction} — {sym}</b>\n"
                 f"{DIV}\n"
                 f"LTP  : Rs {ltp:,.2f}\n"
@@ -178,7 +126,6 @@ def check_alerts_and_circuits(today_prices: list[dict]) -> None:
 def build_volume_spikes_section(scraper: NepseScraper, today_prices: list[dict]) -> str:
     try:
         avg_data = scraper.get_trading_average(n_days=30)
-        # Build map: symbol → average volume
         avg_map: dict[str, float] = {}
         for item in avg_data:
             sym = item.get("symbol") or item.get("stockSymbol")
@@ -272,7 +219,6 @@ def build_index_section(scraper: NepseScraper, today_prices: list[dict]) -> str:
         low = fval(main, "low")
         icon = "🟢" if change >= 0 else "🔴"
 
-        # Market breadth from today's prices
         gainers = sum(1 for s in today_prices if fval(s, "percentageChange", "perChange") > 0)
         losers  = sum(1 for s in today_prices if fval(s, "percentageChange", "perChange") < 0)
         total   = len(today_prices)
@@ -370,7 +316,7 @@ def build_watchlist_section(scraper: NepseScraper, watch_stocks: list[str]) -> s
 def main():
     now_nst = datetime.now(NST)
     time_str = now_nst.strftime("%a, %d %b %Y  %I:%M %p NST")
-    scraper = NepseScraper(verify_ssl=False)
+    scraper = get_scraper()
 
     if not scraper.is_market_open():
         print("Market is closed. Skipping.")
@@ -380,19 +326,16 @@ def main():
 
     watch_stocks = load_watch_stocks()
 
-    # Fetch today's full price list once — shared across all checks
     today_prices: list[dict] = []
     try:
         today_prices = scraper.get_today_price() or []
     except Exception as e:
         print(f"[WARN] get_today_price failed: {e}")
 
-    # Fire alerts, circuit breakers, and index thresholds (separate messages)
     check_index_threshold(scraper)
     if today_prices:
         check_alerts_and_circuits(today_prices)
 
-    # Build main update message
     sections = [
         "📈 <b>NEPSE Market Update</b>",
         f"<i>{time_str}</i>",
@@ -405,7 +348,7 @@ def main():
         "\n<i>Next update in 30 min</i>",
     ]
 
-    send_telegram("\n".join(s for s in sections if s))
+    send("\n".join(s for s in sections if s))
     print("Update sent.")
 
 

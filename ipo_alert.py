@@ -1,30 +1,14 @@
 """Daily IPO/FPO/rights notice alert from NEPSE."""
-import os
-import urllib3
-import requests
-from nepse_scraper import NepseScraper
-from kv_utils import kv_get_json, kv_put_json
-
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
-DIV = "─────────────────"
+from nepse.common import get_scraper, DIV
+from nepse.telegram import send
+from nepse.kv import get_json as kv_get_json, put_json as kv_put_json
 
 IPO_KEYWORDS = ["ipo", "fpo", "right share", "rights share", "rights issue",
                 "debenture", "mutual fund", "new listing", "public issue"]
 
 
-def send_telegram(msg: str):
-    requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"},
-        timeout=10,
-    )
-
-
 def main():
-    scraper = NepseScraper(verify_ssl=False)
+    scraper = get_scraper()
 
     try:
         notices = scraper.call_endpoint("notice_api")
@@ -62,7 +46,7 @@ def main():
         lines.append(f"  • {title}")
 
     lines += ["", "Check <b>Mero Share</b> or <b>NEPSE website</b> for full details."]
-    send_telegram("\n".join(lines))
+    send("\n".join(lines))
     print(f"Sent {len(new_notices)} IPO/rights notices.")
 
 

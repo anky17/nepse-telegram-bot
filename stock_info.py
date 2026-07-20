@@ -1,29 +1,11 @@
-import os
+"""Individual stock info with indicators and sentiment analysis."""
 import sys
-import urllib3
-import requests
 from datetime import date, timedelta
 from nepse_scraper import NepseScraper
+from nepse.common import get_scraper, DIV
+from nepse.telegram import send
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-PRINT_MODE = "--print" in sys.argv
 args = [a.upper() for a in sys.argv[1:] if a != "--print"]
-
-TELEGRAM_TOKEN = "" if PRINT_MODE else os.environ["TELEGRAM_TOKEN"]
-TELEGRAM_CHAT_ID = "" if PRINT_MODE else os.environ["TELEGRAM_CHAT_ID"]
-
-DIV = "─────────────────"
-
-
-def send_telegram(message: str):
-    if PRINT_MODE:
-        print(message)
-        return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}, timeout=10)
-    if not r.ok:
-        print(f"[ERROR] Telegram send failed: {r.text}")
 
 
 # ── Indicator math ────────────────────────────────────────────────
@@ -53,7 +35,6 @@ def build_sentiment(ltp, sma20, sma50, rsi, vol_ratio, day_pct, w52_pct):
     score = 0
     signals = []
 
-    # Short-term trend
     if sma20 is not None:
         if ltp > sma20:
             score += 1
@@ -62,7 +43,6 @@ def build_sentiment(ltp, sma20, sma50, rsi, vol_ratio, day_pct, w52_pct):
             score -= 1
             signals.append(("🔴", f"Price is below its 20-day average (Rs {sma20:,.0f}) — short-term downtrend"))
 
-    # Medium-term trend
     if sma50 is not None:
         if ltp > sma50:
             score += 1
@@ -71,7 +51,6 @@ def build_sentiment(ltp, sma20, sma50, rsi, vol_ratio, day_pct, w52_pct):
             score -= 1
             signals.append(("🔴", f"Price is below its 50-day average (Rs {sma50:,.0f}) — medium-term downtrend"))
 
-    # RSI
     if rsi is not None:
         if rsi >= 70:
             score -= 1
@@ -88,7 +67,6 @@ def build_sentiment(ltp, sma20, sma50, rsi, vol_ratio, day_pct, w52_pct):
         else:
             signals.append(("🟡", f"RSI {rsi:.0f}/100 — Neutral zone, no clear direction"))
 
-    # Volume
     if vol_ratio is not None:
         if vol_ratio >= 2.0:
             if day_pct >= 0:
@@ -105,14 +83,12 @@ def build_sentiment(ltp, sma20, sma50, rsi, vol_ratio, day_pct, w52_pct):
         elif vol_ratio < 0.5:
             signals.append(("🟡", f"Volume is low ({vol_ratio:.1f}x normal) — not many people trading today"))
 
-    # 52-week position
     if w52_pct is not None:
         if w52_pct >= 80:
             signals.append(("🟡", f"Near 52-week HIGH (top {100-w52_pct:.0f}% of yearly range) — strong run, be careful of pullback"))
         elif w52_pct <= 20:
             signals.append(("🟡", f"Near 52-week LOW (bottom {w52_pct:.0f}% of yearly range) — could be a buying opportunity or value trap"))
 
-    # Overall verdict
     if score >= 3:
         verdict, icon = "STRONGLY BULLISH 🚀", "🟢"
         plain = "Most signals point UP. This stock looks strong right now."
@@ -164,12 +140,10 @@ def fetch_stock(scraper: NepseScraper, symbol: str) -> str:
     icon = "🟢" if change >= 0 else "🔴"
     sign = "+" if change >= 0 else ""
 
-    # 52-week position
     w52_pct = None
     if w52h > w52l:
         w52_pct = (ltp - w52l) / (w52h - w52l) * 100
 
-    # Price history for indicators
     closes, volumes = [], []
     try:
         end = date.today()
@@ -235,7 +209,6 @@ def fetch_stock(scraper: NepseScraper, symbol: str) -> str:
             elif pb < 1:
                 lines.append("   <i>P/B below 1 — trading below book value (may be undervalued)</i>")
 
-    # Indicators section
     lines += ["", "🧭 <b>Technical Indicators</b>  <i>(what the charts say)</i>", DIV]
     if sma20:
         rel = "ABOVE ▲" if ltp > sma20 else "BELOW ▼"
@@ -262,7 +235,6 @@ def fetch_stock(scraper: NepseScraper, symbol: str) -> str:
         lines.append(f"   RSI (14-day): <b>{rsi:.0f}/100</b>  →  {rsi_label}")
         lines.append("   <i>RSI: 0-30 = very cheap/oversold, 30-70 = normal, 70-100 = expensive/overbought</i>")
 
-    # Sentiment summary
     lines += [
         "",
         f"🎯 <b>Overall Sentiment: {verdict}</b>",
@@ -283,9 +255,9 @@ def main():
         print("Usage: python stock_info.py NABIL [NICA ...] [--print]")
         sys.exit(1)
 
-    scraper = NepseScraper(verify_ssl=False)
+    scraper = get_scraper()
     for symbol in symbols:
-        send_telegram(fetch_stock(scraper, symbol))
+        send(fetch_stock(scraper, symbol))
 
 
 if __name__ == "__main__":

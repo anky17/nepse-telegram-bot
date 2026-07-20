@@ -1,36 +1,21 @@
+"""Market close summary and broker floorsheet analysis via NEPSE API."""
 import os
 import sys
-import urllib3
-import requests
 from datetime import datetime
-import pytz
 from nepse_scraper import NepseScraper
-from kv_utils import kv_get, kv_put_json
+from nepse.common import get_scraper, DIV, NST
+from nepse.telegram import send, PRINT_MODE
+from nepse.kv import get as kv_get, put_json as kv_put_json
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-NST = pytz.timezone("Asia/Kathmandu")
-
-# --print flag: print to console instead of sending to Telegram (for local testing)
-PRINT_MODE = "--print" in sys.argv
 args = [a for a in sys.argv[1:] if a != "--print"]
-
-TELEGRAM_TOKEN = "" if PRINT_MODE else os.environ["TELEGRAM_TOKEN"]
-TELEGRAM_CHAT_ID = "" if PRINT_MODE else os.environ["TELEGRAM_CHAT_ID"]
-
-# If specific symbols passed via CLI (from /broker command), use them
 CLI_SYMBOLS = [s.strip().upper() for s in args if s.strip()]
-
-DIV = "─────────────────"
 
 
 def send_market_close_summary(scraper: NepseScraper) -> None:
-    """Full-day recap sent once at 3:15 PM NST."""
     now = datetime.now(NST)
     date_str = now.strftime("%a, %d %b %Y")
     lines = [f"🔔 <b>Market Closed — {date_str}</b>", DIV]
 
-    # Index final value
     try:
         indices = scraper.get_nepse_index()
         idx = next((i for i in indices if i.get("id") == 58), {})
@@ -47,7 +32,6 @@ def send_market_close_summary(scraper: NepseScraper) -> None:
     except Exception:
         pass
 
-    # Market summary
     try:
         rows = scraper.call_endpoint("market_summary_api")
         lookup = {r["detail"]: r["value"] for r in rows if "detail" in r}
@@ -64,7 +48,6 @@ def send_market_close_summary(scraper: NepseScraper) -> None:
     except Exception:
         pass
 
-    # Top gainer and loser of the day
     try:
         gainers = scraper.get_top_stocks(category="top_gainer")
         losers = scraper.get_top_stocks(category="top_loser")
@@ -78,10 +61,8 @@ def send_market_close_summary(scraper: NepseScraper) -> None:
         pass
 
     lines.append("\n<i>Broker report for your watchlist follows below.</i>")
+    send("\n".join(lines))
 
-    send_telegram("\n".join(lines))
-
-    # Reset daily circuit breaker tracking
     kv_put_json("alerted_circuits", {})
 
 
@@ -94,16 +75,6 @@ def load_watch_stocks() -> list[str]:
     return [s.strip().upper() for s in os.environ.get("WATCH_STOCKS", "").split(",") if s.strip()]
 
 
-def send_telegram(message: str):
-    if PRINT_MODE:
-        print(message)
-        return
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}, timeout=10)
-    if not r.ok:
-        print(f"[ERROR] Telegram send failed: {r.text}")
-
-
 def analyze_floorsheet(scraper: NepseScraper, symbol: str) -> str:
     try:
         scraper._get_security_map()
@@ -111,7 +82,6 @@ def analyze_floorsheet(scraper: NepseScraper, symbol: str) -> str:
         if not sec_id:
             return f"⚠️ <b>{symbol}</b>: symbol not found"
 
-        # Fetch all floorsheet pages for today
         all_rows = []
         page = 0
         while True:
@@ -125,7 +95,6 @@ def analyze_floorsheet(scraper: NepseScraper, symbol: str) -> str:
                 params={"securityId": sec_id, "page": page, "size": 500, "sort": "contractId,desc"}
             )
 
-            # Handle both list and paginated dict response
             if isinstance(result, list):
                 rows = result
                 has_more = False
@@ -144,14 +113,13 @@ def analyze_floorsheet(scraper: NepseScraper, symbol: str) -> str:
             if not rows:
                 break
             all_rows.extend(rows)
-            if not has_more or page >= 19:  # cap at 10,000 rows
+            if not has_more or page >= 19:
                 break
             page += 1
 
         if not all_rows:
             return f"⚠️ <b>{symbol}</b>: no floorsheet data yet\n<i>NEPSE publishes floorsheet data in the evening (~5–8 PM NST). Try /broker later.</i>"
 
-        # Aggregate by broker
         buy: dict[str, dict] = {}
         sell: dict[str, dict] = {}
         total_qty = 0
@@ -176,7 +144,6 @@ def analyze_floorsheet(scraper: NepseScraper, symbol: str) -> str:
         if total_qty == 0:
             return f"⚠️ <b>{symbol}</b>: no trades found in floorsheet"
 
-        # Net position: accumulated (bought > sold) vs distributed (sold > bought)
         all_brokers = set(buy) | set(sell)
         net: dict[str, float] = {
             b: buy.get(b, {}).get("qty", 0) - sell.get(b, {}).get("qty", 0)
@@ -188,7 +155,6 @@ def analyze_floorsheet(scraper: NepseScraper, symbol: str) -> str:
         top_accum = sorted([(b, v) for b, v in net.items() if v > 0], key=lambda x: x[1], reverse=True)[:3]
         top_distrib = sorted([(b, v) for b, v in net.items() if v < 0], key=lambda x: x[1])[:3]
 
-        # Concentration: top 3 buyers' share of total volume
         top3_qty = sum(v["qty"] for _, v in top_buyers[:3])
         concentration = (top3_qty / total_qty * 100) if total_qty else 0
         conc_flag = "🚨" if concentration > 50 else ("⚠️" if concentration > 30 else "✅")
@@ -236,9 +202,8 @@ def analyze_floorsheet(scraper: NepseScraper, symbol: str) -> str:
 
 
 def main():
-    scraper = NepseScraper(verify_ssl=False)
+    scraper = get_scraper()
 
-    # Send market close summary only on the scheduled daily run (not on /broker command)
     if not CLI_SYMBOLS:
         send_market_close_summary(scraper)
 
@@ -251,8 +216,7 @@ def main():
 
     for symbol in symbols:
         print(f"  → {symbol}")
-        report = analyze_floorsheet(scraper, symbol)
-        send_telegram(report)
+        send(analyze_floorsheet(scraper, symbol))
 
     print("Done.")
 

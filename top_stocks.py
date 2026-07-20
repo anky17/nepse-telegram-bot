@@ -1,42 +1,13 @@
-"""Top gainers/losers/turnover or sector-wise performance report."""
+"""Top gainers/losers/turnover or sector-wise performance."""
 import os
 import sys
-import urllib3
-import requests
-from nepse_scraper import NepseScraper
+from nepse.common import get_scraper, DIV, fval
+from nepse.telegram import send
 
-urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
-PRINT_MODE = "--print" in sys.argv
-TELEGRAM_TOKEN = "" if PRINT_MODE else os.environ["TELEGRAM_TOKEN"]
-TELEGRAM_CHAT_ID = "" if PRINT_MODE else os.environ["TELEGRAM_CHAT_ID"]
 MODE = os.environ.get("MODE", "top")  # "top" or "sector"
-DIV = "─────────────────"
 
 
-def send_telegram(msg: str):
-    if PRINT_MODE:
-        print(msg)
-        return
-    requests.post(
-        f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage",
-        json={"chat_id": TELEGRAM_CHAT_ID, "text": msg, "parse_mode": "HTML"},
-        timeout=10,
-    )
-
-
-def fval(d: dict, *keys, default=0.0) -> float:
-    for k in keys:
-        v = d.get(k)
-        if v is not None:
-            try:
-                return float(v)
-            except (ValueError, TypeError):
-                pass
-    return default
-
-
-def top_stocks_report(scraper: NepseScraper) -> str:
+def top_stocks_report(scraper) -> str:
     lines = ["📊 <b>NEPSE Top Stocks</b>", DIV]
 
     for category, header, icon in [("top_gainer", "Top Gainers", "🟢"), ("top_loser", "Top Losers", "🔴")]:
@@ -53,7 +24,6 @@ def top_stocks_report(scraper: NepseScraper) -> str:
             print(f"[WARN] {category}: {e}")
             lines.append(f"\n{icon} <b>{header}</b>\n  ⚠️ Unavailable")
 
-    # Turnover has different field names
     try:
         items = scraper.get_top_stocks(category="top_turnover")
         lines.append("\n💰 <b>Top Turnover</b>")
@@ -70,14 +40,10 @@ def top_stocks_report(scraper: NepseScraper) -> str:
     return "\n".join(lines)
 
 
-def sector_report(scraper: NepseScraper) -> str:
+def sector_report(scraper) -> str:
     try:
         sectors = scraper.call_endpoint("sectorwise_summary_api")
-        sectors_sorted = sorted(
-            sectors,
-            key=lambda s: float(s.get("percentageChange") or 0),
-            reverse=True,
-        )
+        sectors_sorted = sorted(sectors, key=lambda s: float(s.get("percentageChange") or 0), reverse=True)
         lines = ["📂 <b>Sector Performance</b>", DIV]
         for s in sectors_sorted:
             name = s.get("sectorName", "?")
@@ -92,11 +58,11 @@ def sector_report(scraper: NepseScraper) -> str:
 
 
 def main():
-    scraper = NepseScraper(verify_ssl=False)
+    scraper = get_scraper()
     if MODE == "sector":
-        send_telegram(sector_report(scraper))
+        send(sector_report(scraper))
     else:
-        send_telegram(top_stocks_report(scraper))
+        send(top_stocks_report(scraper))
     print(f"{MODE} report sent.")
 
 
