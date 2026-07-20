@@ -1,0 +1,39 @@
+name: NEPSE Telegram Bot
+
+on:
+  schedule:
+    # Every 30 min from 5:15 AM to 9:15 AM UTC = 11:00 AM to 3:00 PM NST
+    # NST = UTC+5:45, so UTC 5:15 = NST 11:00, UTC 9:15 = NST 15:00
+    - cron: "15 5 * * 0-4"   # 11:00 AM NST  (Sun–Thu)
+    - cron: "45 5 * * 0-4"   # 11:30 AM NST
+    - cron: "15 6 * * 0-4"   # 12:00 PM NST
+    - cron: "45 6 * * 0-4"   # 12:30 PM NST
+    - cron: "15 7 * * 0-4"   # 1:00 PM NST
+    - cron: "45 7 * * 0-4"   # 1:30 PM NST
+    - cron: "15 8 * * 0-4"   # 2:00 PM NST
+    - cron: "45 8 * * 0-4"   # 2:30 PM NST
+    - cron: "15 9 * * 0-4"   # 3:00 PM NST (closing)
+  workflow_dispatch:          # allow manual trigger from GitHub UI
+
+jobs:
+  send-nepse-update:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run NEPSE bot
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          WATCH_STOCKS: ${{ secrets.WATCH_STOCKS }}
+        run: python nepse_bot.py
