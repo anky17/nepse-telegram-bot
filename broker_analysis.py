@@ -149,7 +149,7 @@ def analyze_floorsheet(scraper: NepseScraper, symbol: str) -> str:
             page += 1
 
         if not all_rows:
-            return f"⚠️ <b>{symbol}</b>: no floorsheet data yet\n<i>Try after 3 PM NST market close</i>"
+            return f"⚠️ <b>{symbol}</b>: no floorsheet data yet\n<i>NEPSE publishes floorsheet data in the evening (~5–8 PM NST). Try /broker later.</i>"
 
         # Aggregate by broker
         buy: dict[str, dict] = {}

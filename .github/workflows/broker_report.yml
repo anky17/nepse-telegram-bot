@@ -2,8 +2,8 @@ name: NEPSE Broker Report
 
 on:
   schedule:
-    # 3:15 PM NST = 9:30 AM UTC (Mon–Fri)
-    - cron: "30 9 * * 1-5"
+    # 8:00 PM NST = 14:15 UTC (Mon–Fri) — floorsheet data published by NEPSE in evening
+    - cron: "15 14 * * 0-4"
   workflow_dispatch:
     inputs:
       symbols:

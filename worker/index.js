@@ -267,7 +267,7 @@ export default {
           "Usage: <code>/broker NABIL</code> or <code>/broker NABIL,NICA</code>",
           "",
           "Analyzes broker buy/sell activity to detect accumulation or distribution.",
-          "Best used after market closes at 3 PM NST.",
+          "Best used after 8 PM NST (NEPSE publishes floorsheet data in the evening).",
         ].join("\n"));
         return new Response("OK");
       }
@@ -291,7 +291,7 @@ export default {
           `⏳ <b>Analyzing ${symbols.join(", ")}...</b>`,
           "",
           "Broker report will arrive in ~30–60 seconds.",
-          "<i>Note: Full data is only available after 3 PM NST market close.</i>",
+          "<i>Note: NEPSE publishes floorsheet data in the evening (~5–8 PM NST).</i>",
         ].join("\n"));
       } else {
         await send(env.TELEGRAM_TOKEN, chatId, "⚠️ Could not trigger analysis. Try again.");
@@ -442,7 +442,8 @@ export default {
         "🕐 <b>Auto Schedules (Mon–Fri)</b>",
         "  11:00 AM  Market open summary  (or /open anytime)",
         "  Every 30 min  Market update + alerts + P&L",
-        "   3:15 PM  Close summary + broker report  (or /close anytime)",
+        "   3:15 PM  Close summary  (or /close anytime)",
+        "   8:00 PM  Broker analysis for watchlist  (or /broker SYMBOL)",
       ].join("\n"));
 
     } else {

@@ -223,7 +223,7 @@ def build_portfolio_section(today_prices: list[dict]) -> str:
 
 # ── Standard market sections ──────────────────────────────────────
 
-def build_index_section(scraper: NepseScraper) -> str:
+def build_index_section(scraper: NepseScraper, today_prices: list[dict]) -> str:
     try:
         indices = scraper.get_nepse_index()
         main = next((i for i in indices if i.get("id") == 58), None)
@@ -235,11 +235,31 @@ def build_index_section(scraper: NepseScraper) -> str:
         high = fval(main, "high")
         low = fval(main, "low")
         icon = "🟢" if change >= 0 else "🔴"
-        return "\n".join([
+
+        # Market breadth from today's prices
+        gainers = sum(1 for s in today_prices if fval(s, "percentageChange", "perChange") > 0)
+        losers  = sum(1 for s in today_prices if fval(s, "percentageChange", "perChange") < 0)
+        total   = len(today_prices)
+        if total > 0 and gainers + losers > 0:
+            bull_ratio = gainers / (gainers + losers)
+            if bull_ratio >= 0.65:
+                sentiment, sent_icon = "Broadly Bullish", "🟢"
+            elif bull_ratio >= 0.45:
+                sentiment, sent_icon = "Mixed", "🟡"
+            else:
+                sentiment, sent_icon = "Broadly Bearish", "🔴"
+            breadth_line = f"  {sent_icon} Market Mood: <b>{sentiment}</b>   {gainers} up · {losers} down · {total - gainers - losers} flat"
+        else:
+            breadth_line = ""
+
+        lines = [
             "📊 <b>NEPSE Index</b>", DIV,
             f"{icon}  <b>{current:,.2f}</b>   {tag(change)} pts  ({tag(pct)}%)",
             f"  H: {high:,.2f}   L: {low:,.2f}",
-        ])
+        ]
+        if breadth_line:
+            lines.append(breadth_line)
+        return "\n".join(lines)
     except Exception as e:
         print(f"[WARN] Index error: {e}")
         return f"📊 <b>NEPSE Index</b>\n{DIV}\n⚠️ Unavailable"
@@ -339,7 +359,7 @@ def main():
     sections = [
         "📈 <b>NEPSE Market Update</b>",
         f"<i>{time_str}</i>",
-        build_index_section(scraper),
+        build_index_section(scraper, today_prices),
         build_summary_section(scraper),
         build_gainers_losers_section(scraper),
         build_volume_spikes_section(scraper, today_prices),
