@@ -11,18 +11,29 @@ jobs:
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         run: |
+          COMMANDS='[
+            {"command": "check",     "description": "Live index, gainers and losers"},
+            {"command": "top",       "description": "Top gainers, losers and turnover"},
+            {"command": "sector",    "description": "Sector-wise performance"},
+            {"command": "stock",     "description": "Stock details — e.g. /stock NABIL"},
+            {"command": "open",      "description": "Market open summary"},
+            {"command": "close",     "description": "Market close summary"},
+            {"command": "threshold", "description": "Index alert — e.g. /threshold above 2800"},
+            {"command": "rules",     "description": "Group rules"},
+            {"command": "help",      "description": "Show all commands"}
+          ]'
+
+          # Default scope (private chats)
           curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/setMyCommands" \
             -H "Content-Type: application/json" \
-            -d '{
-              "commands": [
-                {"command": "check",     "description": "Live index, gainers and losers"},
-                {"command": "top",       "description": "Top gainers, losers and turnover"},
-                {"command": "sector",    "description": "Sector-wise performance"},
-                {"command": "stock",     "description": "Stock details — e.g. /stock NABIL"},
-                {"command": "open",      "description": "Market open summary"},
-                {"command": "close",     "description": "Market close summary"},
-                {"command": "threshold", "description": "Index alert — e.g. /threshold above 2800"},
-                {"command": "rules",     "description": "Group rules"},
-                {"command": "help",      "description": "Show all commands"}
-              ]
-            }'
+            -d "{\"commands\": $COMMANDS}"
+
+          # Group chats scope
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/setMyCommands" \
+            -H "Content-Type: application/json" \
+            -d "{\"commands\": $COMMANDS, \"scope\": {\"type\": \"all_group_chats\"}}"
+
+          # Supergroup chats scope
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/setMyCommands" \
+            -H "Content-Type: application/json" \
+            -d "{\"commands\": $COMMANDS, \"scope\": {\"type\": \"all_supergroups\"}}"
