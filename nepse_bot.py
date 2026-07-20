@@ -43,7 +43,7 @@ NST = pytz.timezone("Asia/Kathmandu")
 
 def is_market_open() -> bool:
     now = datetime.now(NST)
-    if now.weekday() in (4, 5):  # Friday=4, Saturday=5 are holidays in Nepal
+    if now.weekday() in (5, 6):  # Saturday=5, Sunday=6 are closed
         return False
     market_start = now.replace(hour=11, minute=0, second=0, microsecond=0)
     market_end = now.replace(hour=15, minute=0, second=0, microsecond=0)
@@ -60,6 +60,9 @@ def fetch(url: str) -> dict | None:
         return None
 
 
+DIV = "─────────────────"
+
+
 def send_telegram(message: str):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}
@@ -68,32 +71,31 @@ def send_telegram(message: str):
         print(f"[ERROR] Telegram send failed: {r.text}")
 
 
-def format_change(value: float) -> str:
-    arrow = "🟢" if value >= 0 else "🔴"
+def tag(value: float, fmt: str = ".2f") -> str:
     sign = "+" if value >= 0 else ""
-    return f"{arrow} {sign}{value:.2f}"
+    icon = "▲" if value >= 0 else "▼"
+    return f"{icon} {sign}{value:{fmt}}"
 
 
 def build_index_section() -> str:
     data = fetch(f"{NEPSE_BASE}/nepse-data/index")
     if not data:
-        return "⚠️ <b>NEPSE Index:</b> unavailable\n"
+        return f"📊 <b>NEPSE Index</b>\n{DIV}\n⚠️ Unavailable"
 
-    # The response wraps data inside keys — handle both shapes
     index = data if isinstance(data, dict) and "index" in data else data.get("data", data)
     try:
         current = float(index.get("currentValue") or index.get("index") or 0)
         change = float(index.get("change") or index.get("absoluteChange") or 0)
         pct = float(index.get("perChange") or index.get("percentageChange") or 0)
-        lines = [
-            "📊 <b>NEPSE Index</b>",
-            f"  Value : <b>{current:.2f}</b>",
-            f"  Change: {format_change(change)} ({format_change(pct)}%)",
-        ]
-        return "\n".join(lines)
+        icon = "🟢" if change >= 0 else "🔴"
+        return "\n".join([
+            f"📊 <b>NEPSE Index</b>",
+            DIV,
+            f"{icon}  <b>{current:,.2f}</b>   {tag(change)} pts  ({tag(pct)}%)",
+        ])
     except Exception as e:
         print(f"[WARN] Index parse error: {e} | raw: {data}")
-        return "⚠️ <b>NEPSE Index:</b> parse error\n"
+        return f"📊 <b>NEPSE Index</b>\n{DIV}\n⚠️ Parse error"
 
 
 def build_market_summary_section() -> str:
@@ -105,13 +107,13 @@ def build_market_summary_section() -> str:
         turnover = float(d.get("totalTurnover") or 0)
         shares = int(d.get("totalTradedShares") or 0)
         txns = int(d.get("totalTransactions") or 0)
-        lines = [
-            "\n💼 <b>Market Summary</b>",
-            f"  Turnover    : Rs {turnover:,.0f}",
-            f"  Traded Shares: {shares:,}",
-            f"  Transactions : {txns:,}",
-        ]
-        return "\n".join(lines)
+        return "\n".join([
+            f"\n💼 <b>Market Summary</b>",
+            DIV,
+            f"  Turnover      Rs {turnover / 1_000_000:.2f}M",
+            f"  Shares Traded {shares:,}",
+            f"  Transactions  {txns:,}",
+        ])
     except Exception as e:
         print(f"[WARN] Summary parse error: {e}")
         return ""
@@ -121,25 +123,23 @@ def build_gainers_losers_section() -> str:
     gainers_data = fetch(f"{NEPSE_BASE}/top25GainerLoser/top25Gainer")
     losers_data = fetch(f"{NEPSE_BASE}/top25GainerLoser/top25Loser")
 
-    lines = []
-
-    def parse_list(data, label, top_n=5):
+    def parse_list(data, header, icon, top_n=5):
         if not data:
-            return [f"⚠️ <b>{label}:</b> unavailable"]
+            return [f"\n{icon} <b>{header}</b>", DIV, "⚠️ Unavailable"]
         items = data.get("data") or data if isinstance(data, dict) else data
         if isinstance(items, dict):
             items = list(items.values())[0] if items else []
-        result = [f"\n{'🟢' if 'Gainer' in label else '🔴'} <b>{label} (Top {top_n})</b>"]
-        for i, stock in enumerate(items[:top_n], 1):
-            symbol = stock.get("symbol") or stock.get("stockSymbol") or "?"
-            pct = float(stock.get("pointChange") or stock.get("percentageChange") or 0)
-            ltp = float(stock.get("lastTradedPrice") or stock.get("ltp") or 0)
+        rows = [f"\n{icon} <b>{header}</b>", DIV]
+        for i, s in enumerate(items[:top_n], 1):
+            sym = s.get("symbol") or s.get("stockSymbol") or "?"
+            pct = float(s.get("pointChange") or s.get("percentageChange") or 0)
+            ltp = float(s.get("lastTradedPrice") or s.get("ltp") or 0)
             sign = "+" if pct >= 0 else ""
-            result.append(f"  {i}. <b>{symbol}</b>  LTP: {ltp:.1f}  ({sign}{pct:.2f}%)")
-        return result
+            rows.append(f"  {i}.  <b>{sym:<10}</b> {ltp:>8.1f}   <code>{sign}{pct:.2f}%</code>")
+        return rows
 
-    lines += parse_list(gainers_data, "Top Gainers")
-    lines += parse_list(losers_data, "Top Losers")
+    lines = parse_list(gainers_data, "Top Gainers", "🟢")
+    lines += parse_list(losers_data, "Top Losers", "🔴")
     return "\n".join(lines)
 
 
@@ -147,7 +147,7 @@ def build_watch_stocks_section() -> str:
     if not WATCH_STOCKS:
         return ""
 
-    lines = ["\n👁 <b>Your Watchlist</b>"]
+    lines = [f"\n👁 <b>Your Watchlist</b>", DIV]
     for symbol in WATCH_STOCKS:
         data = fetch(f"{NEPSE_BASE}/security/symbol/{symbol}")
         if not data:
@@ -161,10 +161,10 @@ def build_watch_stocks_section() -> str:
             change = float(d.get("change") or d.get("pointChange") or 0)
             pct = float(d.get("perChange") or d.get("percentageChange") or 0)
             vol = int(d.get("totalTradeQuantity") or d.get("volume") or 0)
-            sign = "+" if change >= 0 else ""
             icon = "🟢" if change >= 0 else "🔴"
+            sign = "+" if change >= 0 else ""
             lines.append(
-                f"  {icon} <b>{symbol}</b>  LTP: {ltp:.2f}  {sign}{change:.2f} ({sign}{pct:.2f}%)  Vol: {vol:,}"
+                f"  {icon} <b>{symbol:<10}</b> {ltp:>8.2f}   <code>{sign}{pct:.2f}%</code>   Vol {vol:,}"
             )
         except Exception as e:
             print(f"[WARN] {symbol} parse error: {e}")
@@ -176,10 +176,9 @@ def build_broker_floorsheet_section() -> str:
     if not WATCH_STOCKS:
         return ""
 
-    lines = ["\n🏦 <b>Broker Activity (Today's Trades)</b>"]
+    lines = [f"\n🏦 <b>Broker Activity</b>", DIV]
 
     for symbol in WATCH_STOCKS:
-        # Get security ID first
         sec_data = fetch(f"{NEPSE_BASE}/security/symbol/{symbol}")
         if not sec_data:
             continue
@@ -194,7 +193,7 @@ def build_broker_floorsheet_section() -> str:
         if not sec_id:
             continue
 
-        floor_data = fetch(f"{NEPSE_BASE}/floorsheet/{sec_id}?&startDate=&endDate=&page=0&size=10&sort=contractId,desc")
+        floor_data = fetch(f"{NEPSE_BASE}/floorsheet/{sec_id}?&startDate=&endDate=&page=0&size=50&sort=contractId,desc")
         if not floor_data:
             continue
 
@@ -204,11 +203,9 @@ def build_broker_floorsheet_section() -> str:
                 lines.append(f"\n  <b>{symbol}</b>: no trades yet today")
                 continue
 
-            lines.append(f"\n  <b>{symbol}</b> — recent broker trades:")
-            # Aggregate buy/sell by broker
             broker_buy: dict[str, float] = {}
             broker_sell: dict[str, float] = {}
-            for row in items[:50]:
+            for row in items:
                 buyer = str(row.get("buyerMemberId") or row.get("buyerBrokerNo") or "?")
                 seller = str(row.get("sellerMemberId") or row.get("sellerBrokerNo") or "?")
                 qty = float(row.get("contractQuantity") or 0)
@@ -218,19 +215,18 @@ def build_broker_floorsheet_section() -> str:
             top_buyers = sorted(broker_buy.items(), key=lambda x: x[1], reverse=True)[:3]
             top_sellers = sorted(broker_sell.items(), key=lambda x: x[1], reverse=True)[:3]
 
-            buy_str = "  ".join(f"B{b}:{q:,.0f}" for b, q in top_buyers)
-            sell_str = "  ".join(f"B{s}:{q:,.0f}" for s, q in top_sellers)
-            lines.append(f"    🟢 Buyers : {buy_str or 'none'}")
-            lines.append(f"    🔴 Sellers: {sell_str or 'none'}")
+            lines.append(f"\n  <b>{symbol}</b>")
+            lines.append("  🟢 Buy  — " + "   ".join(f"B{b} <code>{q:,.0f}</code>" for b, q in top_buyers))
+            lines.append("  🔴 Sell — " + "   ".join(f"B{s} <code>{q:,.0f}</code>" for s, q in top_sellers))
         except Exception as e:
             print(f"[WARN] Floorsheet parse error for {symbol}: {e}")
 
-    return "\n".join(lines) if len(lines) > 1 else ""
+    return "\n".join(lines) if len(lines) > 2 else ""
 
 
 def main():
     now_nst = datetime.now(NST)
-    time_str = now_nst.strftime("%I:%M %p NST, %a %d %b %Y")
+    time_str = now_nst.strftime("%a, %d %b %Y  %I:%M %p NST")
 
     if not is_market_open():
         print("Market is closed. Skipping.")
@@ -239,13 +235,14 @@ def main():
     print(f"[{time_str}] Market is open. Fetching NEPSE data...")
 
     sections = [
-        f"<b>NEPSE Update</b> | {time_str}",
-        "",
+        f"📈 <b>NEPSE Market Update</b>",
+        f"<i>{time_str}</i>",
         build_index_section(),
         build_market_summary_section(),
         build_gainers_losers_section(),
         build_watch_stocks_section(),
         build_broker_floorsheet_section(),
+        f"\n<i>Next update in 30 min</i>",
     ]
 
     message = "\n".join(s for s in sections if s is not None)
