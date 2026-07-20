@@ -9,12 +9,17 @@ from kv_utils import kv_get, kv_put_json
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
-TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
 NST = pytz.timezone("Asia/Kathmandu")
 
+# --print flag: print to console instead of sending to Telegram (for local testing)
+PRINT_MODE = "--print" in sys.argv
+args = [a for a in sys.argv[1:] if a != "--print"]
+
+TELEGRAM_TOKEN = "" if PRINT_MODE else os.environ["TELEGRAM_TOKEN"]
+TELEGRAM_CHAT_ID = "" if PRINT_MODE else os.environ["TELEGRAM_CHAT_ID"]
+
 # If specific symbols passed via CLI (from /broker command), use them
-CLI_SYMBOLS = [s.strip().upper() for s in sys.argv[1:] if s.strip()]
+CLI_SYMBOLS = [s.strip().upper() for s in args if s.strip()]
 
 DIV = "─────────────────"
 
@@ -90,6 +95,9 @@ def load_watch_stocks() -> list[str]:
 
 
 def send_telegram(message: str):
+    if PRINT_MODE:
+        print(message)
+        return
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     r = requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "HTML"}, timeout=10)
     if not r.ok:

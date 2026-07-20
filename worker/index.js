@@ -217,6 +217,45 @@ export default {
         await send(env.TELEGRAM_TOKEN, chatId, "⚠️ Could not trigger update. Try again shortly.");
       }
 
+    } else if (text.startsWith("/stock")) {
+      const raw = text.replace(/^\/stock\s*/i, "").toUpperCase().trim();
+      const symbols = raw ? raw.split(",").map(s => s.trim()).filter(Boolean) : [];
+
+      if (!symbols.length) {
+        await send(env.TELEGRAM_TOKEN, chatId, [
+          "⚠️ <b>Missing symbol</b>",
+          "",
+          "Usage: <code>/stock NABIL</code> or <code>/stock NABIL,NICA</code>",
+          "",
+          "Shows LTP, OHLC, volume, 52-week range, market cap, and fundamentals.",
+        ].join("\n"));
+        return new Response("OK");
+      }
+
+      const ghRes = await fetch(
+        `https://api.github.com/repos/${env.GITHUB_REPO}/actions/workflows/stock_info.yml/dispatches`,
+        {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "NEPSE-Bot",
+          },
+          body: JSON.stringify({ ref: "main", inputs: { symbols: symbols.join(",") } }),
+        }
+      );
+
+      if (ghRes.ok || ghRes.status === 204) {
+        await send(env.TELEGRAM_TOKEN, chatId, [
+          `⏳ <b>Fetching ${symbols.join(", ")}...</b>`,
+          "",
+          "Stock details will arrive in ~30–60 seconds.",
+        ].join("\n"));
+      } else {
+        await send(env.TELEGRAM_TOKEN, chatId, "⚠️ Could not fetch stock info. Try again.");
+      }
+
     } else if (text.startsWith("/broker")) {
       const raw = text.replace(/^\/broker\s*/i, "").toUpperCase().trim();
       const symbols = raw ? raw.split(",").map(s => s.trim()).filter(Boolean) : [];
@@ -375,6 +414,7 @@ export default {
         "",
         "📊 <b>Market Data</b>",
         "<code>/check</code>  — live index, gainers, losers, watchlist",
+        "<code>/stock NABIL</code>  — LTP, OHLC, volume, 52W range, fundamentals",
         "<code>/open</code>   — market open summary (index + sector outlook)",
         "<code>/close</code>  — market close summary + broker analysis for watchlist",
         "",

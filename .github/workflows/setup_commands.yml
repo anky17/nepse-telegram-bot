@@ -16,6 +16,7 @@ jobs:
             -d '{
               "commands": [
                 {"command": "check",       "description": "Live index, gainers, losers, watchlist"},
+                {"command": "stock",       "description": "Stock details — e.g. /stock NABIL"},
                 {"command": "open",        "description": "Market open summary (index + sectors)"},
                 {"command": "close",       "description": "Market close summary + broker analysis"},
                 {"command": "broker",      "description": "Broker buy/sell analysis — e.g. /broker NABIL"},
