@@ -1,9 +1,13 @@
 import os
 import sys
+import warnings
 import requests
+import urllib3
 from datetime import datetime
 import pytz
 from nepse_scraper import NepseScraper
+
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 TELEGRAM_TOKEN = os.environ["TELEGRAM_TOKEN"]
 TELEGRAM_CHAT_ID = os.environ["TELEGRAM_CHAT_ID"]
@@ -69,23 +73,24 @@ def tag(value: float) -> str:
 def build_index_section(scraper: NepseScraper) -> str:
     try:
         indices = scraper.get_nepse_index()
-        # Main NEPSE index is typically the first entry or identifiable by name
         main = next(
-            (i for i in indices if str(i.get("index", "")).upper() == "NEPSE"
-             or str(i.get("indexName", "")).upper() == "NEPSE"),
-            indices[0] if indices else None
+            (i for i in indices if i.get("index") == "NEPSE Index" or i.get("id") == 58),
+            None
         )
         if not main:
             return f"📊 <b>NEPSE Index</b>\n{DIV}\n⚠️ No data"
 
-        current = fval(main, "currentValue", "value", "indexValue")
-        change = fval(main, "change", "absoluteChange", "pointChange")
-        pct = fval(main, "perChange", "percentageChange", "changePercent")
+        current = fval(main, "currentValue")
+        change = fval(main, "change")
+        pct = fval(main, "perChange")
+        high = fval(main, "high")
+        low = fval(main, "low")
         icon = "🟢" if change >= 0 else "🔴"
         return "\n".join([
             f"📊 <b>NEPSE Index</b>",
             DIV,
             f"{icon}  <b>{current:,.2f}</b>   {tag(change)} pts  ({tag(pct)}%)",
+            f"  H: {high:,.2f}   L: {low:,.2f}",
         ])
     except Exception as e:
         print(f"[WARN] Index error: {e}")
@@ -94,17 +99,20 @@ def build_index_section(scraper: NepseScraper) -> str:
 
 def build_summary_section(scraper: NepseScraper) -> str:
     try:
-        raw = scraper.call_endpoint("market_summary_api")
-        d = raw if isinstance(raw, dict) else (raw[0] if raw else {})
-        turnover = fval(d, "totalTurnover", "turnover")
-        shares = ival(d, "totalTradedShares", "tradedShares", "totalShares")
-        txns = ival(d, "totalTransactions", "transactions")
+        rows = scraper.call_endpoint("market_summary_api")
+        # Response is a list of {"detail": "...", "value": ...}
+        lookup = {r["detail"]: r["value"] for r in rows if "detail" in r and "value" in r}
+        turnover = float(lookup.get("Total Turnover Rs:", 0))
+        shares = int(lookup.get("Total Traded Shares", 0))
+        txns = int(lookup.get("Total Transactions", 0))
+        scrips = int(lookup.get("Total Scrips Traded", 0))
         return "\n".join([
             f"\n💼 <b>Market Summary</b>",
             DIV,
             f"  Turnover      Rs {turnover / 1_000_000:.2f}M",
             f"  Shares Traded {shares:,}",
             f"  Transactions  {txns:,}",
+            f"  Scrips Traded {scrips:,}",
         ])
     except Exception as e:
         print(f"[WARN] Summary error: {e}")
@@ -119,9 +127,9 @@ def build_gainers_losers_section(scraper: NepseScraper) -> str:
             items = scraper.get_top_stocks(category=category)
             rows = [f"\n{icon} <b>{header}</b>", DIV]
             for i, s in enumerate(items[:5], 1):
-                sym = s.get("symbol") or s.get("stockSymbol") or "?"
-                ltp = fval(s, "lastTradedPrice", "ltp", "closePrice")
-                pct = fval(s, "percentageChange", "perChange", "pointChange")
+                sym = s.get("symbol") or "?"
+                ltp = fval(s, "ltp", "lastTradedPrice", "closePrice")
+                pct = fval(s, "percentageChange", "perChange")
                 sign = "+" if pct >= 0 else ""
                 rows.append(f"  {i}.  <b>{sym:<10}</b> {ltp:>8.1f}   <code>{sign}{pct:.2f}%</code>")
             return rows
