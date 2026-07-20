@@ -1,0 +1,32 @@
+name: Setup Telegram Bot Commands
+
+on:
+  workflow_dispatch:
+
+jobs:
+  set-commands:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Register bot commands with Telegram
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        run: |
+          curl -s -X POST "https://api.telegram.org/bot${TELEGRAM_TOKEN}/setMyCommands" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "commands": [
+                {"command": "check",       "description": "Live index, gainers, losers, watchlist"},
+                {"command": "open",        "description": "Market open summary (index + sectors)"},
+                {"command": "close",       "description": "Market close summary + broker analysis"},
+                {"command": "broker",      "description": "Broker buy/sell analysis — e.g. /broker NABIL"},
+                {"command": "alert",       "description": "Set price alert — e.g. /alert NABIL above 550"},
+                {"command": "alerts",      "description": "View all active price alerts"},
+                {"command": "delalert",    "description": "Remove a price alert — e.g. /delalert NABIL"},
+                {"command": "portfolio",   "description": "Set portfolio — e.g. /portfolio NABIL:100:520"},
+                {"command": "myportfolio", "description": "View your portfolio holdings"},
+                {"command": "watch",       "description": "Set watchlist — e.g. /watch NABIL,NICA"},
+                {"command": "status",      "description": "View your watchlist"},
+                {"command": "stop",        "description": "Clear your watchlist"},
+                {"command": "help",        "description": "Show all commands"}
+              ]
+            }'
