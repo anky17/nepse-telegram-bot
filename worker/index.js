@@ -110,18 +110,6 @@ export default {
         ? `⏳ <b>Analyzing ${symbols.join(", ")}...</b>\n\nBroker report will arrive in ~30–60 seconds.`
         : "⚠️ Could not trigger analysis. Try again.");
 
-    } else if (text === "/open") {
-      const ok = await dispatchWorkflow(env, "market_open.yml", {});
-      await send(env.TELEGRAM_TOKEN, chatId, ok
-        ? "⏳ <b>Fetching market open summary...</b>\n\nSummary will arrive in ~30–60 seconds."
-        : "⚠️ Could not trigger market open summary. Try again.");
-
-    } else if (text === "/close") {
-      const ok = await dispatchWorkflow(env, "broker_report.yml", { symbols: "" });
-      await send(env.TELEGRAM_TOKEN, chatId, ok
-        ? "⏳ <b>Fetching market close summary...</b>\n\nClose summary + broker analysis will arrive in ~30–60 seconds."
-        : "⚠️ Could not trigger market close summary. Try again.");
-
     } else if (text === "/top") {
       const ok = await dispatchWorkflow(env, "top_stocks.yml", { mode: "top" });
       await send(env.TELEGRAM_TOKEN, chatId, ok
@@ -348,8 +336,6 @@ export default {
         "<code>/top</code>       — top gainers, losers & turnover",
         "<code>/sector</code>    — sector-wise performance",
         "<code>/stock NABIL</code>  — LTP, OHLC, volume, fundamentals",
-        "<code>/open</code>      — market open summary",
-        "<code>/close</code>     — market close + broker analysis",
         "",
         "🏦 <b>Broker Analysis</b>",
         "<code>/broker NABIL</code>  — top buyers/sellers from daily floorsheet",
@@ -377,7 +363,8 @@ export default {
         "  10:55 AM  Morning briefing",
         "  11:00 AM  Market open summary",
         "  Every 30 min  Market update",
-        "   3:15 PM  Close summary",
+        "   5:15 PM  EOD recap",
+        "   8:00 PM  Broker floorsheet analysis",
         "  Daily  IPO / rights notices check",
       ].join("\n"));
 
