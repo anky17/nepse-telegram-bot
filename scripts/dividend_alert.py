@@ -66,9 +66,9 @@ def main():
         total = row.get("total_dividend", "").strip()
         closure = row.get("book_closure_date", "").strip()
         parts = []
-        if bonus and float(bonus or 0) > 0:
+        if bonus and float((bonus or "0").replace(",", "")) > 0:
             parts.append(f"Bonus {bonus}%")
-        if cash and float(cash or 0) > 0:
+        if cash and float((cash or "0").replace(",", "")) > 0:
             parts.append(f"Cash {cash}%")
         detail = "  +  ".join(parts) if parts else f"Total {total}%"
         lines.append(f"  <b>{symbol}</b>  {fy}  —  {detail}")
