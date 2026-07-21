@@ -1,0 +1,32 @@
+name: Watchlist ML Buy Signal
+
+on:
+  schedule:
+    # 9:00 AM NST (Sun–Thu) = 3:15 AM UTC
+    # NEPSE market opens at 11 AM NST — signals are ready well before open
+    - cron: "15 3 * * 0-4"
+  workflow_dispatch:
+
+jobs:
+  watchlist-signal:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run ML watchlist scan
+        env:
+          PYTHONPATH: ${{ github.workspace }}
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python scripts/watchlist_signal.py

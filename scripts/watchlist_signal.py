@@ -1,0 +1,320 @@
+"""NEPSE ML Buy Signal Scanner.
+
+Fetches history for all active NEPSE equities, engineers technical features
+(RSI, MACD, Bollinger Bands, SMA crossovers, volume, momentum), trains a
+Random Forest on 10-day forward return labels, and sends top-ranked picks.
+"""
+import warnings
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime
+
+import numpy as np
+import pandas as pd
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.preprocessing import RobustScaler
+from ta.momentum import RSIIndicator
+from ta.trend import MACD, SMAIndicator
+from ta.volatility import BollingerBands
+from ta.volume import OnBalanceVolumeIndicator
+
+from nepse.common import DIV, NST, get_scraper
+from nepse.sharesansar import get_history_closes_volumes
+from nepse.telegram import send
+
+warnings.filterwarnings("ignore")
+
+MIN_HISTORY = 100    # minimum trading sessions per stock
+FORWARD_DAYS = 10   # label: did price rise in next N sessions?
+WORKERS = 20        # parallel fetch threads
+TOP_N = 8           # stocks shown in message
+
+FEATURE_COLS = [
+    "rsi_14", "rsi_6",
+    "macd_hist_norm", "macd_cross",
+    "bb_pct", "bb_width",
+    "price_vs_sma20", "price_vs_sma50",
+    "sma20_vs_sma50", "sma50_vs_sma200",
+    "vol_ratio",
+    "mom_5d", "mom_10d", "mom_20d",
+    "obv_mom",
+]
+
+
+# ── Feature Engineering ───────────────────────────────────────────────────────
+
+def build_features(sym: str, closes: list, volumes: list) -> pd.DataFrame | None:
+    if len(closes) < MIN_HISTORY:
+        return None
+
+    c = pd.Series(closes, dtype=float)
+    v = pd.Series(volumes if len(volumes) == len(closes) else [0.0] * len(closes), dtype=float)
+    df = pd.DataFrame({"close": c, "volume": v})
+
+    # RSI
+    df["rsi_14"] = RSIIndicator(c, window=14).rsi()
+    df["rsi_6"] = RSIIndicator(c, window=6).rsi()
+
+    # MACD
+    _macd = MACD(c)
+    macd_line = _macd.macd()
+    macd_sig = _macd.macd_signal()
+    df["macd_hist_norm"] = _macd.macd_diff() / df["close"]   # normalized by price
+    df["macd_cross"] = (macd_line > macd_sig).astype(float)
+
+    # Bollinger Bands
+    bb = BollingerBands(c, window=20, window_dev=2)
+    df["bb_pct"] = bb.bollinger_pband()    # 0 = at lower band, 1 = at upper band
+    df["bb_width"] = bb.bollinger_wband()  # band width as % of middle
+
+    # SMA relationships
+    sma20 = SMAIndicator(c, 20).sma_indicator()
+    sma50 = SMAIndicator(c, 50).sma_indicator()
+    sma200 = SMAIndicator(c, 200).sma_indicator()
+    df["price_vs_sma20"] = (c / sma20 - 1).fillna(0)
+    df["price_vs_sma50"] = (c / sma50 - 1).fillna(0)
+    df["sma20_vs_sma50"] = (sma20 / sma50 - 1).fillna(0)
+    df["sma50_vs_sma200"] = (sma50 / sma200 - 1).fillna(0)  # 0 if SMA200 unavailable
+
+    # Volume ratio
+    vol_avg = v.rolling(20).mean().replace(0, np.nan)
+    df["vol_ratio"] = (v / vol_avg).fillna(1.0).clip(0, 10)
+
+    # Price momentum
+    df["mom_5d"] = c.pct_change(5)
+    df["mom_10d"] = c.pct_change(10)
+    df["mom_20d"] = c.pct_change(20)
+
+    # OBV momentum (skip if no volume data)
+    if v.sum() > 0:
+        obv = OnBalanceVolumeIndicator(c, v).on_balance_volume()
+        df["obv_mom"] = obv.pct_change(5).fillna(0).clip(-5, 5)
+    else:
+        df["obv_mom"] = 0.0
+
+    # Forward return label
+    df["fwd_ret"] = c.shift(-FORWARD_DAYS) / c - 1
+    df["label"] = (df["fwd_ret"] > 0).astype(int)
+
+    df["symbol"] = sym
+    df["current_price"] = c
+    return df
+
+
+# ── Data Pipeline ─────────────────────────────────────────────────────────────
+
+def fetch_all(symbols: list) -> dict:
+    """Parallel-fetch EOD history for all symbols."""
+    result = {}
+
+    def _get(sym):
+        return sym, get_history_closes_volumes(sym)
+
+    with ThreadPoolExecutor(max_workers=WORKERS) as ex:
+        futures = {ex.submit(_get, s): s for s in symbols}
+        for fut in as_completed(futures):
+            try:
+                sym, (closes, vols) = fut.result()
+                if len(closes) >= MIN_HISTORY:
+                    result[sym] = (closes, vols)
+            except Exception:
+                pass
+    return result
+
+
+def build_dataset(stock_data: dict) -> tuple[pd.DataFrame, dict[str, pd.Series]]:
+    """Build training DataFrame and per-stock latest-feature rows."""
+    train_parts = []
+    latest: dict[str, pd.Series] = {}
+
+    for sym, (closes, vols) in stock_data.items():
+        df = build_features(sym, closes, vols)
+        if df is None:
+            continue
+
+        # Latest row = prediction point (no future label available yet)
+        last_row = df.iloc[-1]
+        latest[sym] = last_row
+
+        # Training rows: all except last FORWARD_DAYS (no valid label)
+        train = df.iloc[:-FORWARD_DAYS].dropna(subset=FEATURE_COLS + ["label"])
+        if len(train) >= 20:
+            train_parts.append(train[FEATURE_COLS + ["label"]])
+
+    full_train = pd.concat(train_parts, ignore_index=True) if train_parts else pd.DataFrame()
+    return full_train, latest
+
+
+# ── ML Model ──────────────────────────────────────────────────────────────────
+
+def train_and_score(train_df: pd.DataFrame, latest: dict) -> list:
+    """Train RF, score all stocks, return list sorted by ML probability."""
+    if train_df.empty or not latest:
+        return []
+
+    # Clean: replace inf, fill NaN with column median
+    X_raw = train_df[FEATURE_COLS].replace([np.inf, -np.inf], np.nan)
+    col_medians = X_raw.median()
+    X_raw = X_raw.fillna(col_medians)
+    y = train_df["label"].values
+
+    scaler = RobustScaler()
+    X = scaler.fit_transform(X_raw)
+
+    clf = RandomForestClassifier(
+        n_estimators=200,
+        max_depth=6,
+        min_samples_leaf=30,
+        class_weight="balanced",
+        random_state=42,
+        n_jobs=-1,
+    )
+    clf.fit(X, y)
+
+    results = []
+    for sym, row in latest.items():
+        feat = row[FEATURE_COLS].replace([np.inf, -np.inf], np.nan)
+        feat = feat.fillna(col_medians)
+        try:
+            prob = clf.predict_proba(scaler.transform(feat.values.reshape(1, -1)))[0][1]
+        except Exception:
+            continue
+        price = float(row["current_price"])
+        signals = _signals(row)
+        results.append((sym, prob, price, signals))
+
+    results.sort(key=lambda x: x[1], reverse=True)
+    return results
+
+
+def _signals(row: pd.Series) -> list[str]:
+    """Convert feature values into readable signal descriptions."""
+    out = []
+    rsi = row.get("rsi_14", 50)
+    if rsi < 30:
+        out.append(f"RSI {rsi:.0f} — strongly oversold")
+    elif rsi < 40:
+        out.append(f"RSI {rsi:.0f} — oversold")
+    elif rsi < 50:
+        out.append(f"RSI {rsi:.0f} — approaching buy zone")
+
+    if row.get("macd_cross", 0) == 1:
+        if (row.get("macd_hist_norm", 0) or 0) > 0:
+            out.append("MACD bullish crossover above zero ↗")
+        else:
+            out.append("MACD bullish crossover")
+
+    if (row.get("sma50_vs_sma200", 0) or 0) > 0:
+        out.append("Golden Cross — SMA50 above SMA200 ✨")
+
+    bb = row.get("bb_pct", 0.5)
+    if (bb or 0.5) < 0.1:
+        out.append("Price at/below lower Bollinger Band")
+    elif (bb or 0.5) < 0.25:
+        out.append("Price near lower Bollinger Band")
+
+    vol = row.get("vol_ratio", 1.0)
+    if (vol or 1.0) >= 2.0:
+        out.append(f"Volume surge {vol:.1f}× average 📈")
+    elif (vol or 1.0) >= 1.5:
+        out.append(f"Volume elevated {vol:.1f}× average")
+
+    mom5 = row.get("mom_5d", 0) or 0
+    if 0 < mom5 < 0.08:
+        out.append(f"Positive 5-day momentum +{mom5 * 100:.1f}%")
+
+    return out or ["Multiple indicators converging"]
+
+
+# ── Message Builder ───────────────────────────────────────────────────────────
+
+def _bar(prob: float) -> str:
+    filled = max(0, min(10, round(prob * 10)))
+    return "█" * filled + "░" * (10 - filled)
+
+
+def build_message(results: list, n_stocks: int, n_rows: int) -> str:
+    now = datetime.now(NST)
+    date_str = now.strftime("%a, %d %b %Y")
+
+    top = results[:TOP_N]
+    high = [(s, p, pr, sg) for s, p, pr, sg in top if p >= 0.56]
+    mid = [(s, p, pr, sg) for s, p, pr, sg in top if 0.53 <= p < 0.56]
+    # If no clear signals, still show best available
+    fallback = top[:5] if not high and not mid else []
+
+    lines = [
+        f"🤖 <b>NEPSE ML Buy Scanner — {date_str}</b>",
+        DIV,
+        f"<i>Scanned {n_stocks} stocks · {n_rows:,} training rows · {FORWARD_DAYS}-day outlook</i>",
+    ]
+
+    if high:
+        lines.append(f"\n🔥 <b>High Confidence</b>  (ML ≥ 56%)")
+        for sym, prob, price, sigs in high:
+            lines.append(f"\n<b>{sym}</b>  Rs {price:.1f}  <code>{prob * 100:.0f}% confidence</code>")
+            lines.append(f"<code>[{_bar(prob)}]</code>")
+            for s in sigs[:3]:
+                lines.append(f"  ✅ {s}")
+
+    if mid:
+        lines.append(f"\n\n📊 <b>Moderate Signals</b>  (ML 53–55%)")
+        lines.append(DIV)
+        for sym, prob, price, sigs in mid:
+            top_sig = sigs[0] if sigs else "Technical convergence"
+            lines.append(f"  · <b>{sym}</b>  Rs {price:.1f}  <code>{prob * 100:.0f}%</code>  — {top_sig}")
+
+    if fallback:
+        lines.append(f"\n\n📉 <b>Best Available Today</b>  (no high signals found)")
+        lines.append(DIV)
+        for sym, prob, price, sigs in fallback:
+            top_sig = sigs[0] if sigs else ""
+            lines.append(f"  · <b>{sym}</b>  Rs {price:.1f}  <code>{prob * 100:.0f}%</code>  — {top_sig}")
+
+    lines += [
+        "",
+        DIV,
+        f"<i>Model: Random Forest · 200 trees · {len(FEATURE_COLS)} features (RSI · MACD · BB · SMA · Volume · Momentum)</i>",
+        "<i>⚠️ Not financial advice. DYOR.</i>",
+    ]
+    return "\n".join(lines)
+
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+
+def main():
+    print("Fetching active NEPSE equities...")
+    scraper = get_scraper()
+    securities = scraper.get_all_securities()
+    symbols = [
+        s["symbol"] for s in securities
+        if s.get("status") == "A" and s.get("instrumentType") == "Equity" and s.get("symbol")
+    ]
+    print(f"  {len(symbols)} active equities")
+
+    print(f"Fetching price histories ({WORKERS} parallel workers)...")
+    stock_data = fetch_all(symbols)
+    print(f"  Got data for {len(stock_data)} stocks")
+
+    print("Building feature dataset...")
+    train_df, latest = build_dataset(stock_data)
+    print(f"  Training rows: {len(train_df):,}  |  Stocks to score: {len(latest)}")
+
+    print("Training Random Forest and scoring all stocks...")
+    results = train_and_score(train_df, latest)
+
+    if not results:
+        print("No results — exiting.")
+        return
+
+    print(f"\nTop 10 by ML confidence:")
+    for sym, prob, price, _ in results[:10]:
+        print(f"  {sym:<12}  {prob * 100:.1f}%  Rs {price:.1f}")
+
+    msg = build_message(results, len(stock_data), len(train_df))
+    send(msg)
+    print("\nML watchlist signal sent.")
+
+
+
+if __name__ == "__main__":
+    main()
