@@ -3,6 +3,7 @@ import sys
 from datetime import date, timedelta
 from nepse_scraper import NepseScraper
 from nepse.common import get_scraper, DIV
+from nepse.sharesansar import get_history_closes_volumes as ss_history
 from nepse.telegram import send
 
 args = [a.upper() for a in sys.argv[1:] if a != "--print"]
@@ -31,7 +32,7 @@ def compute_sma(closes: list, period: int) -> float | None:
 
 # ── Sentiment engine ──────────────────────────────────────────────
 
-def build_sentiment(ltp, sma20, sma50, rsi, vol_ratio, day_pct, w52_pct):
+def build_sentiment(ltp, sma20, sma50, rsi, vol_ratio, day_pct, w52_pct, sma200=None):
     score = 0
     signals = []
 
@@ -50,6 +51,21 @@ def build_sentiment(ltp, sma20, sma50, rsi, vol_ratio, day_pct, w52_pct):
         else:
             score -= 1
             signals.append(("🔴", f"Price is below its 50-day average (Rs {sma50:,.0f}) — medium-term downtrend"))
+
+    if sma200 is not None:
+        if ltp > sma200:
+            score += 1
+            signals.append(("🟢", f"Price is above its 200-day average (Rs {sma200:,.0f}) — long-term uptrend"))
+        else:
+            score -= 1
+            signals.append(("🔴", f"Price is below its 200-day average (Rs {sma200:,.0f}) — long-term downtrend"))
+        if sma50 is not None:
+            if sma50 > sma200:
+                score += 1
+                signals.append(("🟢", "50-day above 200-day — GOLDEN CROSS (major long-term bullish signal)"))
+            else:
+                score -= 1
+                signals.append(("🔴", "50-day below 200-day — DEATH CROSS (major long-term bearish signal)"))
 
     if rsi is not None:
         if rsi >= 70:
@@ -161,8 +177,15 @@ def fetch_stock(scraper: NepseScraper, symbol: str) -> str:
     avg_vol = (sum(volumes[-20:]) / len(volumes[-20:])) if len(volumes) >= 5 else None
     vol_ratio = (volume / avg_vol) if avg_vol and avg_vol > 0 else None
 
+    ss_closes: list[float] = []
+    try:
+        ss_closes, _ = ss_history(symbol)
+    except Exception:
+        pass
+    sma200 = compute_sma(ss_closes, 200) if len(ss_closes) >= 200 else None
+
     verdict, sent_icon, plain, signals, score = build_sentiment(
-        ltp, sma20, sma50, rsi, vol_ratio, day_pct, w52_pct
+        ltp, sma20, sma50, rsi, vol_ratio, day_pct, w52_pct, sma200=sma200
     )
 
     lines = [
@@ -216,11 +239,19 @@ def fetch_stock(scraper: NepseScraper, symbol: str) -> str:
     if sma50:
         rel = "ABOVE ▲" if ltp > sma50 else "BELOW ▼"
         lines.append(f"   50-day avg price: Rs {sma50:,.0f}  →  Currently <b>{rel}</b>")
+    if sma200:
+        rel = "ABOVE ▲" if ltp > sma200 else "BELOW ▼"
+        lines.append(f"   200-day avg price: Rs {sma200:,.0f}  →  Currently <b>{rel}</b>")
     if sma20 and sma50:
         if sma20 > sma50:
-            lines.append("   <i>20-day crossed above 50-day — bullish golden signal</i>")
+            lines.append("   <i>Short-term: 20-day above 50-day — near-term bullish</i>")
         else:
-            lines.append("   <i>20-day below 50-day — bearish death cross signal</i>")
+            lines.append("   <i>Short-term: 20-day below 50-day — near-term bearish</i>")
+    if sma50 and sma200:
+        if sma50 > sma200:
+            lines.append("   <i>Long-term: 50-day above 200-day — ✅ GOLDEN CROSS (major bull signal)</i>")
+        else:
+            lines.append("   <i>Long-term: 50-day below 200-day — ⚠️ DEATH CROSS (major bear signal)</i>")
     if rsi is not None:
         if rsi >= 70:
             rsi_label = "Overbought — may pull back"

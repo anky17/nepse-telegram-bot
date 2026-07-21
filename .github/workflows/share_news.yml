@@ -1,0 +1,35 @@
+name: Share News
+
+on:
+  schedule:
+    # 4× daily during/after market hours (Mon–Fri), NST times:
+    - cron: "30 4  * * 1-5"   # 10:15 AM NST
+    - cron: "30 6  * * 1-5"   # 12:15 PM NST
+    - cron: "30 8  * * 1-5"   #  2:15 PM NST
+    - cron: "15 10 * * 1-5"   #  4:00 PM NST
+  workflow_dispatch:
+
+jobs:
+  share-news:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run share news
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_KV_NAMESPACE_ID: ${{ secrets.CF_KV_NAMESPACE_ID }}
+        run: python share_news.py

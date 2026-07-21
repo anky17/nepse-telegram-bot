@@ -1,0 +1,30 @@
+name: EOD Market Recap
+
+on:
+  schedule:
+    # 5:15 PM NST (Mon–Fri) = 11:30 AM UTC
+    # Runs 30 min after ShareSansar publishes end-of-day data at 5:00 PM NST
+    - cron: "30 11 * * 1-5"
+  workflow_dispatch:
+
+jobs:
+  eod-recap:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run EOD recap
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python eod_recap.py
