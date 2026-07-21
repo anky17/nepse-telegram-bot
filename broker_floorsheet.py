@@ -69,32 +69,77 @@ def analyze(symbol: str, rows: list[dict], date: str) -> str:
     concentration = top3_vol / total_qty * 100
     conc_flag = "🔴" if concentration > 40 else "🟡" if concentration > 25 else "🟢"
 
+    total_accum   = sum(q for _, q in accumulators)
+    total_distrib = abs(sum(q for _, q in distributors))
+    if total_accum > total_distrib * 1.5:
+        verdict = "🟢 <b>Bullish lean</b> — institutions are quietly <b>accumulating</b>"
+    elif total_distrib > total_accum * 1.5:
+        verdict = "🔴 <b>Bearish lean</b> — institutions are <b>offloading</b> shares"
+    else:
+        verdict = "🟡 <b>Neutral</b> — buying and selling are roughly balanced"
+
     lines = [
         f"🏦 <b>Broker Analysis — {symbol}</b>",
         f"<i>{date}  ·  {int(total_qty):,} shares  ·  {len(trades):,} contracts</i>",
+        "<i>Each 'Broker' is a licensed stockbroker firm registered with NEPSE</i>",
+        "",
+        "📥 <b>Top Buyers</b>  <i>— who bought the most shares today</i>",
         DIV,
-        "", "📥 <b>Top Buyers</b>",
     ]
-    for broker, qty in top_buyers:
-        lines.append(f"  B{broker:<4}  {int(qty):>8,} shares  ({qty/total_qty*100:.1f}%)")
-
-    lines += ["", "📤 <b>Top Sellers</b>"]
-    for broker, qty in top_sellers:
-        lines.append(f"  B{broker:<4}  {int(qty):>8,} shares  ({qty/total_qty*100:.1f}%)")
-
-    if accumulators:
-        lines += ["", "🟢 <b>Net Accumulators</b>"]
-        for broker, qty in accumulators:
-            lines.append(f"  B{broker:<4}  +{int(qty):>8,} net")
-
-    if distributors:
-        lines += ["", "🔴 <b>Net Distributors</b>"]
-        for broker, qty in distributors:
-            lines.append(f"  B{broker:<4}  {int(qty):>8,} net")
+    for i, (broker, qty) in enumerate(top_buyers, 1):
+        pct = qty / total_qty * 100
+        bar = "▓" * min(int(pct / 2), 10)
+        lines.append(f"  {i}. Broker {broker:<4}  {int(qty):>8,} shares  {bar} {pct:.1f}%")
 
     lines += [
         "",
-        f"{conc_flag} <b>Concentration</b>: top 3 brokers = {concentration:.1f}% of volume",
+        "📤 <b>Top Sellers</b>  <i>— who sold the most shares today</i>",
+        DIV,
+    ]
+    for i, (broker, qty) in enumerate(top_sellers, 1):
+        pct = qty / total_qty * 100
+        bar = "▓" * min(int(pct / 2), 10)
+        lines.append(f"  {i}. Broker {broker:<4}  {int(qty):>8,} shares  {bar} {pct:.1f}%")
+
+    if accumulators:
+        lines += [
+            "",
+            "🟢 <b>Real Buyers</b>  <i>— bought MORE than they sold (net holders)</i>",
+            "<i>These brokers ended the day with extra shares — a bullish signal</i>",
+            DIV,
+        ]
+        for broker, qty in accumulators:
+            lines.append(f"  Broker {broker:<4}  kept  +{int(qty):>7,} extra shares")
+
+    if distributors:
+        lines += [
+            "",
+            "🔴 <b>Real Sellers</b>  <i>— sold MORE than they bought (net exiters)</i>",
+            "<i>These brokers ended the day with fewer shares — a bearish signal</i>",
+            DIV,
+        ]
+        for broker, qty in distributors:
+            lines.append(f"  Broker {broker:<4}  shed   {int(abs(qty)):>7,} shares net")
+
+    if concentration > 50:
+        conc_note = "🚨 Very HIGH — 3 brokers control over half the volume. Could be institutional or manipulative."
+    elif concentration > 25:
+        conc_note = "⚠️ MODERATE — a few big players dominate. Worth watching closely."
+    else:
+        conc_note = "✅ LOW — trading spread across many brokers. Healthy and normal."
+
+    lines += [
+        "",
+        f"{conc_flag} <b>Market Concentration</b>",
+        DIV,
+        f"  Top 3 brokers controlled <b>{concentration:.1f}%</b> of all {symbol} trading.",
+        f"  {conc_note}",
+        "<i>High concentration can mean a big institution is making a move.</i>",
+        "",
+        "🧠 <b>Bottom Line</b>",
+        DIV,
+        f"  {verdict}",
+        "",
         "<i>Source: Nepse-All-Scraper floorsheet</i>",
     ]
     return "\n".join(lines)

@@ -159,40 +159,76 @@ def analyze_floorsheet(scraper: NepseScraper, symbol: str) -> str:
         concentration = (top3_qty / total_qty * 100) if total_qty else 0
         conc_flag = "🚨" if concentration > 50 else ("⚠️" if concentration > 30 else "✅")
 
+        # Verdict: compare total accumulated vs distributed
+        total_accum_qty  = sum(qty for _, qty in top_accum)
+        total_distrib_qty = abs(sum(qty for _, qty in top_distrib))
+        if total_accum_qty > total_distrib_qty * 1.5:
+            verdict = "🟢 <b>Bullish lean</b> — institutions are quietly <b>accumulating</b> (holding onto shares)"
+        elif total_distrib_qty > total_accum_qty * 1.5:
+            verdict = "🔴 <b>Bearish lean</b> — institutions are <b>offloading</b> (getting rid of shares)"
+        else:
+            verdict = "🟡 <b>Neutral</b> — buying and selling are roughly balanced"
+
         lines = [
             f"🏦 <b>Broker Analysis — {symbol}</b>",
-            f"<i>Total Traded: {int(total_qty):,} shares | {len(all_rows):,} transactions</i>",
+            f"<i>{int(total_qty):,} shares traded across {len(all_rows):,} transactions</i>",
+            "<i>Each 'Broker' is a licensed stockbroker firm registered with NEPSE</i>",
             "",
-            f"🟢 <b>Top Buyers</b>",
+            "📥 <b>Top Buyers</b>  <i>— who bought the most shares today</i>",
             DIV,
         ]
-        for broker, data in top_buyers:
+        for i, (broker, data) in enumerate(top_buyers, 1):
             pct = data["qty"] / total_qty * 100
-            lines.append(f"  B{broker:<4}  {int(data['qty']):>8,} shares  ({pct:.1f}%)")
-
-        lines += ["", f"🔴 <b>Top Sellers</b>", DIV]
-        for broker, data in top_sellers:
-            pct = data["qty"] / total_qty * 100
-            lines.append(f"  B{broker:<4}  {int(data['qty']):>8,} shares  ({pct:.1f}%)")
-
-        lines += ["", f"📥 <b>Net Accumulators</b> (bought more than sold)", DIV]
-        for broker, qty in top_accum:
-            lines.append(f"  B{broker:<4}  +{int(qty):>8,} shares net")
-
-        lines += ["", f"📤 <b>Net Distributors</b> (sold more than bought)", DIV]
-        for broker, qty in top_distrib:
-            lines.append(f"  B{broker:<4}  {int(qty):>8,} shares net")
+            bar = "▓" * min(int(pct / 2), 10)
+            lines.append(f"  {i}. Broker {broker:<4}  {int(data['qty']):>8,} shares  {bar} {pct:.1f}%")
 
         lines += [
             "",
-            f"{conc_flag} <b>Concentration</b>: top 3 brokers = {concentration:.1f}% of volume",
+            "📤 <b>Top Sellers</b>  <i>— who sold the most shares today</i>",
+            DIV,
         ]
+        for i, (broker, data) in enumerate(top_sellers, 1):
+            pct = data["qty"] / total_qty * 100
+            bar = "▓" * min(int(pct / 2), 10)
+            lines.append(f"  {i}. Broker {broker:<4}  {int(data['qty']):>8,} shares  {bar} {pct:.1f}%")
+
+        lines += [
+            "",
+            "🟢 <b>Real Buyers</b>  <i>— bought MORE than they sold (net holders)</i>",
+            "<i>These brokers ended the day with extra shares — a bullish signal</i>",
+            DIV,
+        ]
+        for broker, qty in top_accum:
+            lines.append(f"  Broker {broker:<4}  kept  +{int(qty):>7,} extra shares")
+
+        lines += [
+            "",
+            "🔴 <b>Real Sellers</b>  <i>— sold MORE than they bought (net exiters)</i>",
+            "<i>These brokers ended the day with fewer shares — a bearish signal</i>",
+            DIV,
+        ]
+        for broker, qty in top_distrib:
+            lines.append(f"  Broker {broker:<4}  shed   {int(abs(qty)):>7,} shares net")
+
         if concentration > 50:
-            lines.append("  <i>High concentration — possible manipulation or institutional play</i>")
+            conc_note = "🚨 Very HIGH — just 3 brokers control over half the volume. Could be institutional or manipulative."
         elif concentration > 30:
-            lines.append("  <i>Moderate concentration — worth monitoring</i>")
+            conc_note = "⚠️ MODERATE — a few big players dominate. Worth watching."
         else:
-            lines.append("  <i>Distributed trading — normal activity</i>")
+            conc_note = "✅ LOW — trading is spread across many brokers. Healthy and normal."
+
+        lines += [
+            "",
+            f"{conc_flag} <b>Market Concentration</b>",
+            DIV,
+            f"  Top 3 brokers controlled <b>{concentration:.1f}%</b> of all {symbol} trading.",
+            f"  {conc_note}",
+            "<i>High concentration can mean a big institution is making a move.</i>",
+            "",
+            "🧠 <b>Bottom Line</b>",
+            DIV,
+            f"  {verdict}",
+        ]
 
         return "\n".join(lines)
 
