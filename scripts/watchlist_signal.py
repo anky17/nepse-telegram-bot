@@ -187,94 +187,103 @@ def train_and_score(train_df: pd.DataFrame, latest: dict) -> list:
 
 
 def _signals(row: pd.Series) -> list[str]:
-    """Convert feature values into readable signal descriptions."""
+    """Plain-English reasons why this stock looks like a buy opportunity."""
     out = []
     rsi = row.get("rsi_14", 50)
     if rsi < 30:
-        out.append(f"RSI {rsi:.0f} — strongly oversold")
+        out.append("Price looks undervalued — historically a good entry point")
     elif rsi < 40:
-        out.append(f"RSI {rsi:.0f} — oversold")
+        out.append("Price has dipped — potential buying opportunity")
     elif rsi < 50:
-        out.append(f"RSI {rsi:.0f} — approaching buy zone")
+        out.append("Selling pressure is easing, buyers stepping in")
 
     if row.get("macd_cross", 0) == 1:
         if (row.get("macd_hist_norm", 0) or 0) > 0:
-            out.append("MACD bullish crossover above zero ↗")
+            out.append("Trend is turning upward with strong momentum")
         else:
-            out.append("MACD bullish crossover")
+            out.append("Short-term trend is turning positive")
 
     if (row.get("sma50_vs_sma200", 0) or 0) > 0:
-        out.append("Golden Cross — SMA50 above SMA200 ✨")
+        out.append("Long-term trend is bullish — big investors are buying")
 
     bb = row.get("bb_pct", 0.5)
     if (bb or 0.5) < 0.1:
-        out.append("Price at/below lower Bollinger Band")
+        out.append("Price near strong support — often bounces back from here")
     elif (bb or 0.5) < 0.25:
-        out.append("Price near lower Bollinger Band")
+        out.append("Price approaching a support level")
 
     vol = row.get("vol_ratio", 1.0)
     if (vol or 1.0) >= 2.0:
-        out.append(f"Volume surge {vol:.1f}× average 📈")
+        out.append(f"Unusually high trading activity — {vol:.1f}× normal volume")
     elif (vol or 1.0) >= 1.5:
-        out.append(f"Volume elevated {vol:.1f}× average")
+        out.append(f"Higher-than-usual buying interest — {vol:.1f}× normal volume")
 
     mom5 = row.get("mom_5d", 0) or 0
     if 0 < mom5 < 0.08:
-        out.append(f"Positive 5-day momentum +{mom5 * 100:.1f}%")
+        out.append(f"Price has been rising steadily this past week (+{mom5 * 100:.1f}%)")
 
-    return out or ["Multiple indicators converging"]
+    return out or ["Several market indicators are aligning positively"]
 
 
 # ── Message Builder ───────────────────────────────────────────────────────────
 
 def _bar(prob: float) -> str:
-    filled = max(0, min(10, round(prob * 10)))
+    # Normalize bar to 50–65% range so it reflects relative strength visually
+    filled = max(0, min(10, round((prob - 0.50) / 0.15 * 10)))
     return "█" * filled + "░" * (10 - filled)
 
 
-def build_message(results: list, n_stocks: int, n_rows: int) -> str:
+def _strength_label(prob: float) -> str:
+    if prob >= 0.56:
+        return "Strong 🔥"
+    if prob >= 0.53:
+        return "Good 📈"
+    return "Moderate"
+
+
+def build_message(results: list, n_stocks: int, sym_names: dict) -> str:
     now = datetime.now(NST)
     date_str = now.strftime("%a, %d %b %Y")
 
     top = results[:TOP_N]
-    high = [(s, p, pr, sg) for s, p, pr, sg in top if p >= 0.56]
-    mid = [(s, p, pr, sg) for s, p, pr, sg in top if 0.53 <= p < 0.56]
-    # If no clear signals, still show best available
-    fallback = top[:5] if not high and not mid else []
+    strong = [(s, p, pr, sg) for s, p, pr, sg in top if p >= 0.56]
+    watch  = [(s, p, pr, sg) for s, p, pr, sg in top if p < 0.56]
 
     lines = [
-        f"🤖 <b>NEPSE ML Buy Scanner — {date_str}</b>",
+        f"🎯 <b>NEPSE Buy Picks — {date_str}</b>",
         DIV,
-        f"<i>Scanned {n_stocks} stocks · {n_rows:,} training rows · {FORWARD_DAYS}-day outlook</i>",
+        f"<i>Scanned all {n_stocks} listed stocks. Here are today's best opportunities.</i>",
     ]
 
-    if high:
-        lines.append(f"\n🔥 <b>High Confidence</b>  (ML ≥ 56%)")
-        for sym, prob, price, sigs in high:
-            lines.append(f"\n<b>{sym}</b>  Rs {price:.1f}  <code>{prob * 100:.0f}% confidence</code>")
-            lines.append(f"<code>[{_bar(prob)}]</code>")
+    detail_list = strong if strong else top[:3]
+    watch_list  = watch  if strong else top[3:8]
+
+    if detail_list:
+        lines.append(f"\n🔥 <b>{'Strong Picks' if strong else 'Best Picks Today'}</b>")
+        for i, (sym, prob, price, sigs) in enumerate(detail_list[:4], 1):
+            name = sym_names.get(sym, "")
+            header = f"<b>{sym}</b>" + (f" — {name}" if name else "")
+            lines += [
+                f"\n{i}. {header}",
+                f"   💰 Price: <b>Rs {price:,.1f}</b>",
+                f"   📊 Buy Signal: <code>[{_bar(prob)}]</code> {_strength_label(prob)}",
+                "   <b>Why this stock?</b>",
+            ]
             for s in sigs[:3]:
-                lines.append(f"  ✅ {s}")
+                lines.append(f"   • {s}")
 
-    if mid:
-        lines.append(f"\n\n📊 <b>Moderate Signals</b>  (ML 53–55%)")
+    if watch_list:
+        lines.append(f"\n\n👀 <b>Also Worth Watching</b>")
         lines.append(DIV)
-        for sym, prob, price, sigs in mid:
-            top_sig = sigs[0] if sigs else "Technical convergence"
-            lines.append(f"  · <b>{sym}</b>  Rs {price:.1f}  <code>{prob * 100:.0f}%</code>  — {top_sig}")
-
-    if fallback:
-        lines.append(f"\n\n📉 <b>Best Available Today</b>  (no high signals found)")
-        lines.append(DIV)
-        for sym, prob, price, sigs in fallback:
-            top_sig = sigs[0] if sigs else ""
-            lines.append(f"  · <b>{sym}</b>  Rs {price:.1f}  <code>{prob * 100:.0f}%</code>  — {top_sig}")
+        for sym, prob, price, sigs in watch_list[:5]:
+            reason = sigs[0] if sigs else "Positive market setup"
+            lines.append(f"  • <b>{sym}</b>  Rs {price:,.1f}  — {reason}")
 
     lines += [
         "",
         DIV,
-        f"<i>Model: Random Forest · 200 trees · {len(FEATURE_COLS)} features (RSI · MACD · BB · SMA · Volume · Momentum)</i>",
-        "<i>⚠️ Not financial advice. DYOR.</i>",
+        "💡 <i>Higher signal = more market indicators agree it's a good time to buy.</i>",
+        "⚠️ <i>Not financial advice. Always do your own research before investing.</i>",
     ]
     return "\n".join(lines)
 
@@ -285,10 +294,12 @@ def main():
     print("Fetching active NEPSE equities...")
     scraper = get_scraper()
     securities = scraper.get_all_securities()
-    symbols = [
-        s["symbol"] for s in securities
+    active = [
+        s for s in securities
         if s.get("status") == "A" and s.get("instrumentType") == "Equity" and s.get("symbol")
     ]
+    symbols = [s["symbol"] for s in active]
+    sym_names = {s["symbol"]: s.get("companyName", "") for s in active}
     print(f"  {len(symbols)} active equities")
 
     print(f"Fetching price histories ({WORKERS} parallel workers)...")
@@ -306,13 +317,13 @@ def main():
         print("No results — exiting.")
         return
 
-    print(f"\nTop 10 by ML confidence:")
+    print(f"\nTop 10 by buy signal:")
     for sym, prob, price, _ in results[:10]:
         print(f"  {sym:<12}  {prob * 100:.1f}%  Rs {price:.1f}")
 
-    msg = build_message(results, len(stock_data), len(train_df))
+    msg = build_message(results, len(stock_data), sym_names)
     send(msg)
-    print("\nML watchlist signal sent.")
+    print("\nWatchlist signal sent.")
 
 
 
