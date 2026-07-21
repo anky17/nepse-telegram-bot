@@ -24,6 +24,7 @@ jobs:
 
       - name: Run notices alert
         env:
+          PYTHONPATH: ${{ github.workspace }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}

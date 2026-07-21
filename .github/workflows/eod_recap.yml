@@ -25,6 +25,7 @@ jobs:
 
       - name: Run EOD recap
         env:
+          PYTHONPATH: ${{ github.workspace }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python scripts/eod_recap.py

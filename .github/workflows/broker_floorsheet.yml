@@ -26,6 +26,7 @@ jobs:
 
       - name: Run broker analysis
         env:
+          PYTHONPATH: ${{ github.workspace }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           SYMBOLS: ${{ github.event.inputs.symbols }}

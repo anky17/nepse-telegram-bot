@@ -19,6 +19,7 @@ jobs:
       - run: pip install -r requirements.txt
       - name: Send stock info
         env:
+          PYTHONPATH: ${{ github.workspace }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python scripts/stock_info.py ${{ github.event.inputs.symbols }}
