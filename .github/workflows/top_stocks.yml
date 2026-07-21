@@ -30,4 +30,4 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           MODE: ${{ github.event.inputs.mode || 'top' }}
-        run: python top_stocks.py
+        run: python scripts/top_stocks.py
