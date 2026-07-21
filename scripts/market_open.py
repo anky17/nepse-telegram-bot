@@ -22,14 +22,32 @@ def main():
         index_line = "⚠️ Index unavailable"
 
     try:
-        sectors = scraper.call_endpoint("sectorwise_summary_api")
-        top = max(sectors, key=lambda s: float(s.get("percentageChange") or 0))
-        bot = min(sectors, key=lambda s: float(s.get("percentageChange") or 0))
-        tp = float(top.get("percentageChange") or 0)
-        bp = float(bot.get("percentageChange") or 0)
+        securities = scraper.get_all_securities()
+        sym_sector = {s["symbol"]: s.get("sectorName", "Others") for s in securities}
+        prices = scraper.get_today_price()
+        bucket: dict = {}
+        for p in prices:
+            sym = p.get("symbol") or ""
+            prev_p = p.get("previousDayClosePrice") or 0
+            ltp = p.get("lastUpdatedPrice") or 0
+            to = p.get("totalTradedValue") or 0
+            if not prev_p or not ltp:
+                continue
+            pct_p = (ltp - prev_p) / prev_p * 100
+            sector = sym_sector.get(sym, "Others")
+            bucket.setdefault(sector, []).append((pct_p, to))
+        sector_avg = {}
+        for sector, items in bucket.items():
+            total_to = sum(t for _, t in items)
+            sector_avg[sector] = (
+                sum(p * t for p, t in items) / total_to if total_to else
+                sum(p for p, _ in items) / len(items)
+            )
+        best = max(sector_avg, key=sector_avg.get)
+        worst = min(sector_avg, key=sector_avg.get)
         sector_lines = [
-            f"  Best   {top.get('sectorName','?'):<20} +{tp:.2f}%",
-            f"  Worst  {bot.get('sectorName','?'):<20} {bp:.2f}%",
+            f"  Best   {best:<20} +{sector_avg[best]:.2f}%",
+            f"  Worst  {worst:<20} {sector_avg[worst]:.2f}%",
         ]
     except Exception:
         sector_lines = []

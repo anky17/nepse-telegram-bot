@@ -42,15 +42,37 @@ def top_stocks_report(scraper) -> str:
 
 def sector_report(scraper) -> str:
     try:
-        sectors = scraper.call_endpoint("sectorwise_summary_api")
-        sectors_sorted = sorted(sectors, key=lambda s: float(s.get("percentageChange") or 0), reverse=True)
+        # Build symbol → sector map from securities list
+        securities = scraper.get_all_securities()
+        sym_sector = {s["symbol"]: s.get("sectorName", "Others") for s in securities}
+
+        # Compute weighted-average change per sector from live prices
+        prices = scraper.get_today_price()
+        bucket: dict[str, list[tuple[float, float]]] = {}
+        for p in prices:
+            sym = p.get("symbol") or ""
+            prev = p.get("previousDayClosePrice") or 0
+            ltp = p.get("lastUpdatedPrice") or 0
+            turnover = p.get("totalTradedValue") or 0
+            if not prev or not ltp:
+                continue
+            pct = (ltp - prev) / prev * 100
+            sector = sym_sector.get(sym, "Others")
+            bucket.setdefault(sector, []).append((pct, turnover))
+
+        sector_avg: dict[str, float] = {}
+        for sector, items in bucket.items():
+            total_to = sum(t for _, t in items)
+            sector_avg[sector] = (
+                sum(p * t for p, t in items) / total_to if total_to else
+                sum(p for p, _ in items) / len(items)
+            )
+
         lines = ["📂 <b>Sector Performance</b>", DIV]
-        for s in sectors_sorted:
-            name = s.get("sectorName", "?")
-            pct = float(s.get("percentageChange") or 0)
+        for sector, pct in sorted(sector_avg.items(), key=lambda x: x[1], reverse=True):
             sign = "+" if pct >= 0 else ""
             icon = "🟢" if pct >= 0 else "🔴"
-            lines.append(f"  {icon} {name:<28} <code>{sign}{pct:.2f}%</code>")
+            lines.append(f"  {icon} {sector:<28} <code>{sign}{pct:.2f}%</code>")
         return "\n".join(lines)
     except Exception as e:
         print(f"[WARN] sector_report: {e}")
