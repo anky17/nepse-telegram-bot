@@ -379,16 +379,24 @@ export default {
     return new Response("OK");
   },
 
-  // ── Morning briefing cron (10:55 AM NST = 5:10 AM UTC) ───────────
   async scheduled(event, env, ctx) {
-    await send(env.TELEGRAM_TOKEN, env.ALLOWED_CHAT_ID, [
-      "🔔 <b>Market opens in 5 minutes!</b>",
-      DIV,
-      "Trading begins at <b>11:00 AM NST</b>.",
-      "",
-      "📊 Full open summary with index & sector outlook arriving shortly.",
-      "💡 Use /check anytime for live data during market hours.",
-    ].join("\n"));
+    if (event.cron === "10 5 * * 1-5") {
+      // 10:55 AM NST — morning briefing
+      await send(env.TELEGRAM_TOKEN, env.ALLOWED_CHAT_ID, [
+        "🔔 <b>Market opens in 5 minutes!</b>",
+        DIV,
+        "Trading begins at <b>11:00 AM NST</b>.",
+        "",
+        "📊 Full open summary with index & sector outlook arriving shortly.",
+        "💡 Use /check anytime for live data during market hours.",
+      ].join("\n"));
+    } else if (event.cron === "15 5 * * 1-5") {
+      // 11:00 AM NST — market open summary
+      await dispatchWorkflow(env, "market_open.yml", {});
+    } else if (event.cron === "30 11 * * 1-5") {
+      // 5:15 PM NST — EOD recap
+      await dispatchWorkflow(env, "eod_recap.yml", {});
+    }
   },
 };
 

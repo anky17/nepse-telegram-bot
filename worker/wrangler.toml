@@ -7,4 +7,8 @@ binding = "NEPSE_KV"
 id = "a8197786d4bb4c79a1c32cd3d6d6a9bf"
 
 [triggers]
-crons = ["10 5 * * 1-5"]  # 10:55 AM NST (UTC+5:45)
+crons = [
+  "10 5 * * 1-5",   # 10:55 AM NST — morning briefing
+  "15 5 * * 1-5",   # 11:00 AM NST — market open summary
+  "30 11 * * 1-5",  # 5:15 PM NST  — EOD recap
+]

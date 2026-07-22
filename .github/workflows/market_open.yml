@@ -1,9 +1,6 @@
 name: NEPSE Market Open
 
 on:
-  schedule:
-    # 11:00 AM NST = 5:15 AM UTC, Mon–Fri
-    - cron: "15 5 * * 1-5"
   workflow_dispatch:
 
 jobs:

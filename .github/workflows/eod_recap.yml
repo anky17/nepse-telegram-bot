@@ -1,10 +1,6 @@
 name: EOD Market Recap
 
 on:
-  schedule:
-    # 5:15 PM NST (Mon–Fri) = 11:30 AM UTC
-    # Runs 30 min after ShareSansar publishes end-of-day data at 5:00 PM NST
-    - cron: "30 11 * * 1-5"
   workflow_dispatch:
 
 jobs:
