@@ -132,37 +132,6 @@ export default {
         ? "⏳ <b>Fetching sector performance...</b>\n\nSector breakdown will arrive in ~30–60 seconds."
         : "⚠️ Could not fetch sector data. Try again.");
 
-    // ── Index threshold ───────────────────────────────────────────
-    } else if (text.startsWith("/threshold")) {
-      const parts = text.replace(/^\/threshold\s*/i, "").trim().toLowerCase().split(/\s+/);
-      if (parts[0] === "clear") {
-        await env.NEPSE_KV.delete("index_threshold");
-        await env.NEPSE_KV.delete("threshold_alerted");
-        await send(env.TELEGRAM_TOKEN, chatId, "✅ Index threshold alerts cleared.");
-      } else if ((parts[0] === "above" || parts[0] === "below") && parts[1] && !isNaN(parts[1])) {
-        const direction = parts[0];
-        const value = parseFloat(parts[1]);
-        const raw = await env.NEPSE_KV.get("index_threshold");
-        const current = raw ? JSON.parse(raw) : {};
-        current[direction] = value;
-        await env.NEPSE_KV.put("index_threshold", JSON.stringify(current));
-        const arrow = direction === "above" ? "▲" : "▼";
-        await send(env.TELEGRAM_TOKEN, chatId, [
-          `📊 <b>Index Alert Set</b>`,
-          DIV,
-          `Alert when NEPSE index goes ${arrow} <b>${value.toLocaleString()}</b>`,
-          "",
-          "Use <code>/threshold clear</code> to remove.",
-        ].join("\n"));
-      } else {
-        await send(env.TELEGRAM_TOKEN, chatId, [
-          "⚠️ <b>Usage</b>",
-          "<code>/threshold above 2800</code>  — alert when index crosses above 2800",
-          "<code>/threshold below 2600</code>  — alert when index drops below 2600",
-          "<code>/threshold clear</code>  — remove all threshold alerts",
-        ].join("\n"));
-      }
-
     // ── Setup check ───────────────────────────────────────────────
     } else if (text === "/setup") {
       if (!(await isAdmin(env.TELEGRAM_TOKEN, chatId, sender.id))) {
@@ -356,11 +325,6 @@ export default {
         "<code>/broker NABIL</code>  — top buyers/sellers from daily floorsheet",
         "    Available after market close",
         "",
-        "📊 <b>Index Alerts</b>",
-        "<code>/threshold above 2800</code>",
-        "<code>/threshold below 2600</code>",
-        "<code>/threshold clear</code>",
-        "",
         "📜 <b>Group</b>",
         "<code>/rules</code>  — group rules",
         "",
@@ -397,7 +361,7 @@ export default {
 
   async scheduled(event, env, ctx) {
     if (event.cron === "10 5 * * 1-5") {
-      // 10:55 AM NST — morning briefing
+      // 10:55 AM NST — morning briefing (sent directly from Worker, no GH Actions delay)
       await send(env.TELEGRAM_TOKEN, env.ALLOWED_CHAT_ID, [
         "🔔 <b>Market opens in 5 minutes!</b>",
         DIV,
@@ -406,12 +370,6 @@ export default {
         "📊 Full open summary with index & sector outlook arriving shortly.",
         "💡 Use /check anytime for live data during market hours.",
       ].join("\n"));
-    } else if (event.cron === "15 5 * * 1-5") {
-      // 11:00 AM NST — market open summary
-      await dispatchWorkflow(env, "market_open.yml", {});
-    } else if (event.cron === "30 11 * * 1-5") {
-      // 5:15 PM NST — EOD recap
-      await dispatchWorkflow(env, "eod_recap.yml", {});
     }
   },
 };

@@ -2,17 +2,17 @@ name: NEPSE Telegram Bot
 
 on:
   schedule:
-    # Every 30 min from 5:45 AM to 9:15 AM UTC = 11:30 AM to 3:00 PM NST
-    # NST = UTC+5:45, so UTC 5:45 = NST 11:30, UTC 9:15 = NST 15:00
-    # 11:00 AM open summary is handled by market_open.yml
-    - cron: "45 5 * * 1-5"   # 11:30 AM NST
-    - cron: "15 6 * * 1-5"   # 12:00 PM NST
-    - cron: "45 6 * * 1-5"   # 12:30 PM NST
-    - cron: "15 7 * * 1-5"   # 1:00 PM NST
-    - cron: "45 7 * * 1-5"   # 1:30 PM NST
-    - cron: "15 8 * * 1-5"   # 2:00 PM NST
-    - cron: "45 8 * * 1-5"   # 2:30 PM NST
-    - cron: "15 9 * * 1-5"   # 3:00 PM NST (closing)
+    # Target delivery every 30 min: 11:30 AM → 3:00 PM NST.
+    # GH Actions takes ~3 min from trigger to message, so each cron fires 3 min early.
+    # NST = UTC+5:45  |  market_open.yml handles the 11:00 AM open summary.
+    - cron: "42 5 * * 1-5"   # target: 11:30 AM NST
+    - cron: "12 6 * * 1-5"   # target: 12:00 PM NST
+    - cron: "42 6 * * 1-5"   # target: 12:30 PM NST
+    - cron: "12 7 * * 1-5"   # target:  1:00 PM NST
+    - cron: "42 7 * * 1-5"   # target:  1:30 PM NST
+    - cron: "12 8 * * 1-5"   # target:  2:00 PM NST
+    - cron: "42 8 * * 1-5"   # target:  2:30 PM NST
+    - cron: "12 9 * * 1-5"   # target:  3:00 PM NST (closing)
   workflow_dispatch:          # allow manual trigger from GitHub UI
 
 jobs:

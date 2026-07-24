@@ -4,6 +4,11 @@ import sys
 from nepse.common import get_scraper, DIV, fval
 from nepse.telegram import send
 
+
+def _is_equity(sym: str) -> bool:
+    """NEPSE equity symbols are purely alphabetical; debentures/bonds contain digits."""
+    return sym.isalpha()
+
 MODE = os.environ.get("MODE", "top")  # "top" or "sector"
 
 
@@ -13,8 +18,11 @@ def top_stocks_report(scraper) -> str:
     for category, header, icon in [("top_gainer", "Top Gainers", "🟢"), ("top_loser", "Top Losers", "🔴")]:
         try:
             items = scraper.get_top_stocks(category=category)
+            # Debentures and bonds have digits in their symbols (e.g. NCCD86, NIBD84).
+            # Filter to equities only so they don't pollute the list.
+            equities = [s for s in items if _is_equity(s.get("symbol") or "")]
             lines.append(f"\n{icon} <b>{header}</b>")
-            for i, s in enumerate(items[:5], 1):
+            for i, s in enumerate(equities[:5], 1):
                 sym = s.get("symbol") or "?"
                 ltp = fval(s, "ltp", "lastTradedPrice", "closePrice")
                 pct = fval(s, "percentageChange", "perChange")

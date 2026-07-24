@@ -12,14 +12,14 @@ jobs:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         run: |
           COMMANDS='[
-            {"command": "check",     "description": "Live index, gainers and losers"},
-            {"command": "top",       "description": "Top gainers, losers and turnover"},
-            {"command": "sector",    "description": "Sector-wise performance"},
-            {"command": "stock",     "description": "Stock details — e.g. /stock NABIL"},
-            {"command": "broker",    "description": "Broker analysis — e.g. /broker NABIL"},
-            {"command": "threshold", "description": "Index alert — e.g. /threshold above 2800"},
-            {"command": "rules",     "description": "Group rules"},
-            {"command": "help",      "description": "Show all commands"}
+            {"command": "check",  "description": "Live index, gainers and losers"},
+            {"command": "top",    "description": "Top gainers, losers and turnover"},
+            {"command": "sector", "description": "Sector-wise performance"},
+            {"command": "scan",   "description": "Pre-market anomaly scan — big mover alerts"},
+            {"command": "stock",  "description": "Stock details — e.g. /stock NABIL"},
+            {"command": "broker", "description": "Broker analysis — e.g. /broker NABIL"},
+            {"command": "rules",  "description": "Group rules"},
+            {"command": "help",   "description": "Show all commands"}
           ]'
 
           # Default scope (private chats)

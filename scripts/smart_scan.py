@@ -5,6 +5,8 @@ Inspired by:
     to detect unusual patterns that precede large stock moves.
   - StockSight (shirosaidev/stocksight): layering news/sentiment context
     on top of price signals.
+  - omnianalyst.com/blog/ml-stock-prediction + MDPI AI 5(3):76:
+    volatility regime ratio, mean-reversion z-score, trend quality features.
 
 How it works:
   For each active NEPSE equity, we compute a feature vector over the last 14
@@ -112,11 +114,32 @@ def _build_feature_vector(closes: list, volumes: list) -> np.ndarray | None:
     mom_3d = float(c[-1] / c[-4] - 1) if len(c) >= 4 else 0.0
     mom_5d = float(c[-1] / c[-6] - 1) if len(c) >= 6 else 0.0
 
+    # ── Regime / z-score / trend-quality (omnianalyst + MDPI AI 5(3):76) ──
+    # Volatility regime: recent 5-bar vol vs. full window vol
+    vol_5 = float(np.std(log_ret_w[-5:])) if len(log_ret_w) >= 5 else 0.0
+    vol_w = float(np.std(log_ret_w)) if len(log_ret_w) > 1 else 1e-9
+    vol_regime = np.clip(vol_5 / vol_w if vol_w > 0 else 1.0, 0.1, 5.0)
+
+    # Mean-reversion z-score: how many std devs is price from its 20-day mean
+    if len(c) >= 20:
+        roll_mean = float(np.mean(c[-20:]))
+        roll_std = float(np.std(c[-20:])) or 1e-9
+        price_zscore = np.clip((c[-1] - roll_mean) / roll_std, -4, 4)
+    else:
+        price_zscore = 0.0
+
+    # Trend quality: 10-day slope normalized by volatility (clean vs. choppy trend)
+    trend_quality = 0.0
+    if len(c) >= 10:
+        pct_10 = float(c[-1] / c[-11] - 1) if len(c) >= 11 else 0.0
+        trend_quality = np.clip(pct_10 / vol_w if vol_w > 0 else 0.0, -10, 10)
+
     feat = np.concatenate([
         log_ret_w,
         vol_ret_w,
         eom_proxy,
-        [slope_ret, slope_vol, spike_5d, spike_20d, mom_3d, mom_5d],
+        [slope_ret, slope_vol, spike_5d, spike_20d, mom_3d, mom_5d,
+         vol_regime, price_zscore, trend_quality],
     ])
 
     if np.any(np.isnan(feat)) or np.any(np.isinf(feat)):

@@ -12,13 +12,17 @@ args = [a.upper() for a in sys.argv[1:] if a != "--print"]
 # ── Indicator math ────────────────────────────────────────────────
 
 def compute_rsi(closes: list, period: int = 14) -> float | None:
+    """Wilder's smoothed RSI — uses EMA after the seed average, not a simple average."""
     if len(closes) < period + 1:
         return None
     changes = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
-    gains = [max(c, 0) for c in changes[-period:]]
-    losses = [abs(min(c, 0)) for c in changes[-period:]]
-    avg_gain = sum(gains) / period
-    avg_loss = sum(losses) / period
+    # Seed: simple average of the first `period` moves
+    avg_gain = sum(max(c, 0) for c in changes[:period]) / period
+    avg_loss = sum(abs(min(c, 0)) for c in changes[:period]) / period
+    # Wilder's EMA smoothing for every subsequent bar
+    for c in changes[period:]:
+        avg_gain = (avg_gain * (period - 1) + max(c, 0)) / period
+        avg_loss = (avg_loss * (period - 1) + abs(min(c, 0))) / period
     if avg_loss == 0:
         return 100.0
     return 100 - (100 / (1 + avg_gain / avg_loss))
@@ -59,7 +63,7 @@ def build_sentiment(ltp, sma20, sma50, rsi, vol_ratio, day_pct, w52_pct, sma200=
         else:
             score -= 1
             signals.append(("🔴", f"Price is below its 200-day average (Rs {sma200:,.0f}) — long-term downtrend"))
-        if sma50 is not None:
+        if sma50 is not None and sma200 is not None:
             if sma50 > sma200:
                 score += 1
                 signals.append(("🟢", "50-day above 200-day — GOLDEN CROSS (major long-term bullish signal)"))
@@ -105,23 +109,17 @@ def build_sentiment(ltp, sma20, sma50, rsi, vol_ratio, day_pct, w52_pct, sma200=
         elif w52_pct <= 20:
             signals.append(("🟡", f"Near 52-week LOW (bottom {w52_pct:.0f}% of yearly range) — could be a buying opportunity or value trap"))
 
-    if score >= 3:
-        verdict, icon = "STRONGLY BULLISH 🚀", "🟢"
-        plain = "Most signals point UP. This stock looks strong right now."
-    elif score >= 1:
-        verdict, icon = "BULLISH 📈", "🟢"
-        plain = "More signals point UP than DOWN. Leaning positive."
-    elif score == 0:
-        verdict, icon = "NEUTRAL ➡️", "🟡"
-        plain = "Mixed signals — no clear direction. Watch and wait."
-    elif score >= -2:
-        verdict, icon = "BEARISH 📉", "🔴"
-        plain = "More signals point DOWN than UP. Caution advised."
+    if score >= 2:
+        verdict = "✅ Watch"
+        plain = "More signals positive than negative. Worth monitoring closely."
+    elif score >= 0:
+        verdict = "⚠️ Caution"
+        plain = "Mixed signals — proceed carefully and wait for confirmation."
     else:
-        verdict, icon = "STRONGLY BEARISH ⚠️", "🔴"
-        plain = "Most signals point DOWN. This stock looks weak right now."
+        verdict = "❌ Avoid"
+        plain = "More signals negative than positive. High risk right now."
 
-    return verdict, icon, plain, signals, score
+    return verdict, plain, signals, score
 
 
 # ── Main report ───────────────────────────────────────────────────
@@ -160,38 +158,55 @@ def fetch_stock(scraper: NepseScraper, symbol: str) -> str:
     if w52h > w52l:
         w52_pct = (ltp - w52l) / (w52h - w52l) * 100
 
-    closes, volumes = [], []
+    # Fetch volumes from the scraper (90-day window is enough for a 20-day avg).
+    # Fetch full price history from ShareSansar for all SMA/RSI calculations —
+    # the scraper's 90-day window is too short for reliable SMA50 on busy calendars.
+    volumes: list[float] = []
     try:
         end = date.today()
         start = end - timedelta(days=90)
         hist = scraper.get_ticker_price_history(symbol, start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
         rows = sorted(hist.get("content", []), key=lambda r: r.get("businessDate", ""))
-        closes = [float(r["closePrice"]) for r in rows if r.get("closePrice")]
         volumes = [float(r["totalTradedQuantity"]) for r in rows if r.get("totalTradedQuantity")]
     except Exception:
         pass
-
-    sma20 = compute_sma(closes, 20)
-    sma50 = compute_sma(closes, 50)
-    rsi = compute_rsi(closes, 14)
-    avg_vol = (sum(volumes[-20:]) / len(volumes[-20:])) if len(volumes) >= 5 else None
-    vol_ratio = (volume / avg_vol) if avg_vol and avg_vol > 0 else None
 
     ss_closes: list[float] = []
     try:
         ss_closes, _ = ss_history(symbol)
     except Exception:
         pass
-    sma200 = compute_sma(ss_closes, 200) if len(ss_closes) >= 200 else None
 
-    verdict, sent_icon, plain, signals, score = build_sentiment(
+    price_data = ss_closes  # full history for all price-based indicators
+    sma20 = compute_sma(price_data, 20)
+    sma50 = compute_sma(price_data, 50)
+    sma200 = compute_sma(price_data, 200) if len(price_data) >= 200 else None
+    rsi = compute_rsi(price_data, 14) if len(price_data) > 14 else None
+    avg_vol = (sum(volumes[-20:]) / len(volumes[-20:])) if len(volumes) >= 5 else None
+    vol_ratio = (volume / avg_vol) if avg_vol and avg_vol > 0 else None
+
+    verdict, plain, signals, score = build_sentiment(
         ltp, sma20, sma50, rsi, vol_ratio, day_pct, w52_pct, sma200=sma200
     )
 
+    # Quick-kill: Group Z/D = compliance risk, override verdict regardless of score
+    group_name = group.get("name", "")
+    if group_name in ("Z", "D"):
+        verdict = "❌ Avoid"
+        plain = f"Group {group_name} — compliance risk. Trading may be restricted or suspended."
+
     lines = [
         f"📋 <b>{symbol}</b>  —  {company.get('companyName', sec.get('securityName', ''))}",
-        f"<i>{sector.get('sectorDescription', '')}  |  Group {group.get('name', '')}  |  {biz_date}</i>",
+        f"<i>{sector.get('sectorDescription', '')}  |  Group {group_name}  |  {biz_date}</i>",
         DIV,
+    ]
+    if group_name in ("Z", "D"):
+        lines += [
+            f"⛔ <b>Group {group_name} — Compliance Risk</b>",
+            "   Trading may be restricted or suspended. Exercise extreme caution.",
+            "",
+        ]
+    lines += [
         f"{icon}  <b>Price: Rs {ltp:,.2f}</b>   {sign}{change:.2f} ({sign}{day_pct:.2f}% today)",
         f"   Open {open_:,.2f}   High {high:,.2f}   Low {low:,.2f}",
         f"   Yesterday closed at Rs {prev:,.2f}",
@@ -233,21 +248,21 @@ def fetch_stock(scraper: NepseScraper, symbol: str) -> str:
                 lines.append("   <i>P/B below 1 — trading below book value (may be undervalued)</i>")
 
     lines += ["", "🧭 <b>Technical Indicators</b>  <i>(what the charts say)</i>", DIV]
-    if sma20:
+    if sma20 is not None:
         rel = "ABOVE ▲" if ltp > sma20 else "BELOW ▼"
         lines.append(f"   20-day avg price: Rs {sma20:,.0f}  →  Currently <b>{rel}</b>")
-    if sma50:
+    if sma50 is not None:
         rel = "ABOVE ▲" if ltp > sma50 else "BELOW ▼"
         lines.append(f"   50-day avg price: Rs {sma50:,.0f}  →  Currently <b>{rel}</b>")
-    if sma200:
+    if sma200 is not None:
         rel = "ABOVE ▲" if ltp > sma200 else "BELOW ▼"
         lines.append(f"   200-day avg price: Rs {sma200:,.0f}  →  Currently <b>{rel}</b>")
-    if sma20 and sma50:
+    if sma20 is not None and sma50 is not None:
         if sma20 > sma50:
             lines.append("   <i>Short-term: 20-day above 50-day — near-term bullish</i>")
         else:
             lines.append("   <i>Short-term: 20-day below 50-day — near-term bearish</i>")
-    if sma50 and sma200:
+    if sma50 is not None and sma200 is not None:
         if sma50 > sma200:
             lines.append("   <i>Long-term: 50-day above 200-day — ✅ GOLDEN CROSS (major bull signal)</i>")
         else:
@@ -266,11 +281,15 @@ def fetch_stock(scraper: NepseScraper, symbol: str) -> str:
         lines.append(f"   RSI (14-day): <b>{rsi:.0f}/100</b>  →  {rsi_label}")
         lines.append("   <i>RSI: 0-30 = very cheap/oversold, 30-70 = normal, 70-100 = expensive/overbought</i>")
 
+    # Build a 2-line key-reasons summary from the strongest aligned signals
+    aligned = [txt for ic, txt in signals if (ic == "🟢") == (score >= 0)][:2]
+    reasons = " · ".join(t.split(" — ")[1] if " — " in t else t for t in aligned) or plain
+
     lines += [
         "",
-        f"🎯 <b>Overall Sentiment: {verdict}</b>",
+        f"🎯 <b>Verdict: {verdict}</b>",
         DIV,
-        f"   {plain}",
+        f"   {reasons}",
         "",
         "   <b>Signal breakdown:</b>",
     ]

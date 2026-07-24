@@ -273,8 +273,10 @@ def build_gainers_losers_section(scraper: NepseScraper) -> str:
     def section(category: str, header: str, icon: str):
         try:
             items = scraper.get_top_stocks(category=category)
+            # Debentures/bonds have digits in their symbols — filter to equities only
+            equities = [s for s in items if (s.get("symbol") or "").isalpha()]
             rows = [f"\n{icon} <b>{header}</b>", DIV]
-            for i, s in enumerate(items[:5], 1):
+            for i, s in enumerate(equities[:5], 1):
                 sym = s.get("symbol") or "?"
                 ltp = fval(s, "ltp", "lastTradedPrice")
                 pct = fval(s, "percentageChange", "perChange")
@@ -332,7 +334,6 @@ def main():
     except Exception as e:
         print(f"[WARN] get_today_price failed: {e}")
 
-    check_index_threshold(scraper)
     if today_prices:
         check_alerts_and_circuits(today_prices)
 

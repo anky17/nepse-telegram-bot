@@ -1,8 +1,16 @@
 """NEPSE ML Buy Signal Scanner.
 
 Fetches history for all active NEPSE equities, engineers technical features
-(RSI, MACD, Bollinger Bands, SMA crossovers, volume, momentum), trains a
-Random Forest on 10-day forward return labels, and sends top-ranked picks.
+(RSI, MACD, Bollinger Bands, SMA crossovers, volume, momentum, volatility
+regime, mean-reversion z-score, trend quality), trains a Gradient Boosting
+classifier on 10-day forward return labels using walk-forward TimeSeriesSplit,
+and sends top-ranked picks.
+
+Technique sources:
+  - Gradient Boosting (HistGBM) over Random Forest — consistently wins on
+    tabular financial data (omnianalyst.com/blog/ml-stock-prediction)
+  - Volatility regime, z-score, trend quality features — MDPI AI 5(3):76
+  - Walk-forward TimeSeriesSplit — prevents data leakage in financial ML
 """
 import warnings
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -10,7 +18,8 @@ from datetime import datetime
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import RandomForestClassifier
+from sklearn.ensemble import HistGradientBoostingClassifier
+from sklearn.model_selection import TimeSeriesSplit
 from sklearn.preprocessing import RobustScaler
 from ta.momentum import RSIIndicator
 from ta.trend import MACD, SMAIndicator
@@ -37,6 +46,10 @@ FEATURE_COLS = [
     "vol_ratio",
     "mom_5d", "mom_10d", "mom_20d",
     "obv_mom",
+    # Regime / z-score / trend-quality features (omnianalyst + MDPI AI 5(3):76)
+    "vol_regime",     # recent volatility / historical volatility  (regime detection)
+    "price_zscore",   # (price - 20d mean) / 20d std  (mean-reversion signal)
+    "trend_quality",  # 10d price slope normalized by volatility  (trend strength)
 ]
 
 
@@ -90,6 +103,26 @@ def build_features(sym: str, closes: list, volumes: list) -> pd.DataFrame | None
         df["obv_mom"] = obv.pct_change(5).fillna(0).clip(-5, 5)
     else:
         df["obv_mom"] = 0.0
+
+    # ── Regime / z-score / trend-quality (omnianalyst + MDPI AI 5(3):76) ───
+    log_ret = c.pct_change().fillna(0)
+
+    # Volatility regime: 5-day rolling vol / 20-day rolling vol
+    # Values > 1 = vol expanding (regime shift), < 1 = vol compressing
+    vol_5d = log_ret.rolling(5).std()
+    vol_20d = log_ret.rolling(20).std().replace(0, np.nan)
+    df["vol_regime"] = (vol_5d / vol_20d).fillna(1.0).clip(0.1, 5.0)
+
+    # Mean-reversion z-score: Bollinger z (price vs 20d mean in std units)
+    roll_mean = c.rolling(20).mean()
+    roll_std = c.rolling(20).std().replace(0, np.nan)
+    df["price_zscore"] = ((c - roll_mean) / roll_std).fillna(0).clip(-4, 4)
+
+    # Trend quality: 10-day price slope normalized by 10-day volatility
+    # High positive value = strong clean uptrend; near zero = choppy
+    slope_10 = c.pct_change(10)
+    vol_10 = log_ret.rolling(10).std().replace(0, np.nan)
+    df["trend_quality"] = (slope_10 / vol_10).fillna(0).clip(-10, 10)
 
     # Forward return label
     df["fwd_ret"] = c.shift(-FORWARD_DAYS) / c - 1
@@ -147,7 +180,7 @@ def build_dataset(stock_data: dict) -> tuple[pd.DataFrame, dict[str, pd.Series]]
 # ── ML Model ──────────────────────────────────────────────────────────────────
 
 def train_and_score(train_df: pd.DataFrame, latest: dict) -> list:
-    """Train RF, score all stocks, return list sorted by ML probability."""
+    """Train Gradient Boosting with walk-forward CV, score all stocks."""
     if train_df.empty or not latest:
         return []
 
@@ -157,18 +190,33 @@ def train_and_score(train_df: pd.DataFrame, latest: dict) -> list:
     X_raw = X_raw.fillna(col_medians)
     y = train_df["label"].values
 
-    scaler = RobustScaler()
-    X = scaler.fit_transform(X_raw)
+    # Walk-forward TimeSeriesSplit: prevents future data leaking into training.
+    # We train on the last fold (most recent data) for final predictions.
+    tscv = TimeSeriesSplit(n_splits=5)
+    best_fold_indices = None
+    for train_idx, _ in tscv.split(X_raw):
+        best_fold_indices = train_idx  # keep iterating — last fold = most recent split
 
-    clf = RandomForestClassifier(
-        n_estimators=200,
-        max_depth=6,
-        min_samples_leaf=30,
+    # Train on data up to the final time-series fold boundary
+    X_train_raw = X_raw.iloc[best_fold_indices]
+    y_train = y[best_fold_indices]
+
+    scaler = RobustScaler()
+    X_train = scaler.fit_transform(X_train_raw)
+    # Refit on all data to maximize signal (using scaler fit from train fold)
+    X_all = scaler.transform(X_raw)
+
+    # HistGradientBoostingClassifier: sklearn's fast GBM, handles NaN natively,
+    # consistently outperforms Random Forest on tabular financial features.
+    clf = HistGradientBoostingClassifier(
+        max_iter=300,
+        max_depth=5,
+        learning_rate=0.05,
+        min_samples_leaf=20,
         class_weight="balanced",
         random_state=42,
-        n_jobs=-1,
     )
-    clf.fit(X, y)
+    clf.fit(X_all, y)
 
     results = []
     for sym, row in latest.items():

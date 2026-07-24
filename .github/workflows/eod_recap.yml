@@ -1,6 +1,10 @@
 name: EOD Market Recap
 
 on:
+  schedule:
+    # Target: 5:15 PM NST (ShareSansar recap data isn't ready until ~5 PM post-close).
+    # NST = UTC+5:45  →  17:15 NST = 11:30 UTC  →  start at 11:27 UTC
+    - cron: "27 11 * * 1-5"
   workflow_dispatch:
 
 jobs:
