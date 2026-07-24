@@ -110,6 +110,12 @@ export default {
         ? `⏳ <b>Analyzing ${symbols.join(", ")}...</b>\n\nBroker report will arrive in ~30–60 seconds.`
         : "⚠️ Could not trigger analysis. Try again.");
 
+    } else if (text === "/scan") {
+      const ok = await dispatchWorkflow(env, "smart_scan.yml", {});
+      await send(env.TELEGRAM_TOKEN, chatId, ok
+        ? "🔭 <b>Running anomaly scan...</b>\n\nPre-market report will arrive in ~60 seconds.\n\n<i>IsolationForest scans all NEPSE equities for unusual price+volume patterns that tend to precede big moves.</i>"
+        : "⚠️ Could not trigger scan. Try again.");
+
     } else if (text === "/top") {
       const ok = await dispatchWorkflow(env, "top_stocks.yml", { mode: "top" });
       await send(env.TELEGRAM_TOKEN, chatId, ok
@@ -316,6 +322,10 @@ export default {
         "    Every 30 min · 11 AM–3 PM NST · Mon–Fri",
         "    Index · gainers · losers · volume spikes",
         "",
+        "🔭 <b>Pre-Market Anomaly Scan</b>",
+        "    10:30 AM NST — ML model surfaces stocks likely to make big moves",
+        "    /scan anytime for on-demand analysis",
+        "",
         "⚡ <b>Circuit Breaker Alerts</b>",
         "    Instant notification when any stock hits ±10%",
         "",
@@ -336,6 +346,11 @@ export default {
         "<code>/top</code>       — top gainers, losers & turnover",
         "<code>/sector</code>    — sector-wise performance",
         "<code>/stock NABIL</code>  — LTP, OHLC, volume, fundamentals",
+        "",
+        "🔭 <b>Smart Scan</b>",
+        "<code>/scan</code>      — pre-market anomaly scan (big mover alerts)",
+        "    Finds stocks with unusual price+volume patterns using ML.",
+        "    Auto-runs at 10:30 AM NST daily. Also on demand anytime.",
         "",
         "🏦 <b>Broker Analysis</b>",
         "<code>/broker NABIL</code>  — top buyers/sellers from daily floorsheet",
@@ -360,6 +375,7 @@ export default {
         "",
         DIV,
         "🕐 <b>Auto Schedules (Mon–Fri)</b>",
+        "  10:30 AM  🔭 Pre-market anomaly scan (big mover alerts)",
         "  10:55 AM  Morning briefing",
         "  11:00 AM  Market open summary",
         "  Every 30 min  Market update",
