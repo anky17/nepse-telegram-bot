@@ -9,6 +9,27 @@ from nepse.kv import get_json as kv_get_json, put_json as kv_put_json
 
 _DATE_RE = re.compile(r"(\d{4}-\d{2}-\d{2})$")
 
+# Title must contain at least one of these to be included
+_SHARE_KEYWORDS = {
+    "share", "shares", "stock", "stocks", "equity",
+    "nepse", "market", "index",
+    "trade", "trading", "turnover", "transaction", "floorsheet",
+    "ipo", "fpo", "right share", "right issue", "bonus share", "bonus",
+    "dividend", "debenture", "mutual fund", "fund",
+    "broker", "depository", "cds",
+    "agm", "egm", "annual general", "extraordinary general",
+    "sebon", "securities board",
+    "bull", "bear", "rally", "circuit breaker",
+    "listed", "listing", "delisted", "delisting",
+    "sector", "bank", "insurance", "hydropower", "finance company",
+    "merger", "acquisition", "promoter",
+}
+
+
+def _is_share_news(title: str) -> bool:
+    t = title.lower()
+    return any(kw in t for kw in _SHARE_KEYWORDS)
+
 NEWS_URL = "https://www.sharesansar.com/category/latest"
 _HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; NepseBotScraper/1.0)"}
 
@@ -59,6 +80,9 @@ def fetch_articles() -> list[dict]:
         article_date = datetime.strptime(date_match.group(1), "%Y-%m-%d").date()
         cutoff = datetime.now(NST).date() - timedelta(days=30)
         if article_date < cutoff:
+            continue
+
+        if not _is_share_news(title):
             continue
 
         url = href if href.startswith("http") else f"https://www.sharesansar.com{href}"
