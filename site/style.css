@@ -35,6 +35,7 @@ body {
   background-size: 40px 40px;
   background-attachment: fixed;
   min-height: 100vh;
+  overflow-x: hidden;
 }
 
 a { color: var(--cyan); }
@@ -289,7 +290,7 @@ section {
 .star-toggle:hover { color: var(--amber); }
 
 /* ---------- board ---------- */
-.board-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.board-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .board-title { font-size: 11px; letter-spacing: 2px; color: var(--text-dim); font-weight: 700; }
 .board-search {
   flex: 1;
@@ -329,7 +330,7 @@ section {
 }
 .board-toggle:hover { border-color: var(--amber); }
 
-.board-scroll { max-height: 420px; overflow-y: auto; }
+.board-scroll { max-height: 420px; overflow-y: auto; overflow-x: auto; }
 .board-scroll.collapsed { display: none; }
 
 .board-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
@@ -396,7 +397,7 @@ section {
 .chart-controls { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
 .chart-controls-right { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
 
-.range-picker, .indicator-picker { display: flex; gap: 6px; }
+.range-picker, .indicator-picker { display: flex; gap: 6px; flex-wrap: wrap; }
 .range-picker button, .indicator-picker button {
   background: var(--bg-raised);
   border: 1px solid var(--border);
@@ -435,7 +436,7 @@ section {
 /* ---------- broker ---------- */
 .broker-section { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border-soft); }
 
-.broker-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.broker-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 
 .broker-load-btn {
   background: var(--bg-raised);
@@ -451,6 +452,8 @@ section {
 .broker-load-btn:hover { border-color: var(--amber); }
 .broker-load-btn:disabled { color: var(--text-dim); cursor: default; border-color: var(--border); }
 
+.broker-result { overflow-x: auto; }
+
 .broker-meta { color: var(--text-dim); font-size: 11px; margin-bottom: 10px; }
 
 .broker-badge-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 12px; }
@@ -465,7 +468,7 @@ section {
 
 .broker-verdict { font-size: 12.5px; }
 
-.broker-table { width: 100%; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; }
+.broker-table { width: 100%; min-width: 420px; border-collapse: collapse; font-size: 12.5px; margin-top: 8px; }
 .broker-table th {
   text-align: right; font-size: 9px; letter-spacing: 1px; color: var(--text-dim);
   padding: 6px 10px; border-bottom: 1px solid var(--border);
@@ -549,11 +552,26 @@ section {
 }
 
 @media (max-width: 640px) {
+  main, .topbar-main, .ticker, .footer { padding-left: 14px; padding-right: 14px; }
+
   .movers { grid-template-columns: 1fr; }
   .topbar-right { gap: 10px; font-size: 10px; }
   .archive-stat { display: none; }
+  .quick-search { max-width: none; order: 3; flex-basis: 100%; }
+
   .board-table th:nth-child(6), .board-table td:nth-child(6),
   .board-table th:nth-child(7), .board-table td:nth-child(7) { display: none; }
+  .board-search { max-width: none; flex: 1 1 100%; }
+
+  .detail { padding: 16px 14px; }
+  .detail-head { padding-right: 54px; }
+  .detail-close { top: 12px; right: 12px; padding: 4px 8px; font-size: 10px; }
+  .detail-symbol { font-size: 18px; }
+
+  .chart-controls { flex-direction: column; align-items: stretch; }
+  .chart-controls-right { justify-content: space-between; }
+
+  .about-modal { padding: 20px; }
 }
 
 /* ---------- about modal ---------- */
