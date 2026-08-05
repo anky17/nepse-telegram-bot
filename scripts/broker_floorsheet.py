@@ -6,7 +6,7 @@ import io
 import requests
 from datetime import datetime, timedelta
 from nepse.common import DIV, NST
-from nepse.telegram import send, PRINT_MODE
+from nepse.telegram import send
 
 BASE_URL = "https://raw.githubusercontent.com/SamirWagle/Nepse-All-Scraper/main/data/floorsheet"
 ARGS = [a for a in sys.argv[1:] if a != "--print"]
@@ -60,13 +60,12 @@ def analyze(symbol: str, rows: list[dict], date: str) -> str:
         return f"⚠️ <b>{symbol}</b>: No valid trade data"
 
     net = {b: buy.get(b, 0) - sell.get(b, 0) for b in set(buy) | set(sell)}
-    top_buyers = sorted(buy.items(), key=lambda x: x[1], reverse=True)[:5]
-    top_sellers = sorted(sell.items(), key=lambda x: x[1], reverse=True)[:5]
     accumulators = sorted([(b, q) for b, q in net.items() if q > 0], key=lambda x: x[1], reverse=True)[:3]
     distributors = sorted([(b, q) for b, q in net.items() if q < 0], key=lambda x: x[1])[:3]
 
-    top3_vol = sum(v for _, v in top_buyers[:3])
-    concentration = top3_vol / total_qty * 100
+    activity = {b: buy.get(b, 0) + sell.get(b, 0) for b in set(buy) | set(sell)}
+    top3_vol = sum(v for _, v in sorted(activity.items(), key=lambda x: x[1], reverse=True)[:3])
+    concentration = top3_vol / (total_qty * 2) * 100
     conc_flag = "🔴" if concentration > 40 else "🟡" if concentration > 25 else "🟢"
 
     total_accum   = sum(q for _, q in accumulators)
@@ -83,46 +82,19 @@ def analyze(symbol: str, rows: list[dict], date: str) -> str:
         f"<i>{date}  ·  {int(total_qty):,} shares  ·  {len(trades):,} contracts</i>",
         "<i>Each 'Broker' is a licensed stockbroker firm registered with NEPSE</i>",
         "",
-        "📥 <b>Top Buyers</b>  <i>— who bought the most shares today</i>",
+        "📊 <b>Broker Positions</b>  <i>— net shares bought vs. sold today</i>",
+        "<i>Net = Buy − Sell. Positive = building a position, negative = exiting one.</i>",
         DIV,
     ]
-    for i, (broker, qty) in enumerate(top_buyers, 1):
-        pct = qty / total_qty * 100
-        bar = "▓" * min(int(pct / 2), 10)
-        lines.append(f"  {i}. Broker {broker:<4}  {int(qty):>8,} shares  {bar} {pct:.1f}%")
-
-    lines += [
-        "",
-        "📤 <b>Top Sellers</b>  <i>— who sold the most shares today</i>",
-        DIV,
-    ]
-    for i, (broker, qty) in enumerate(top_sellers, 1):
-        pct = qty / total_qty * 100
-        bar = "▓" * min(int(pct / 2), 10)
-        lines.append(f"  {i}. Broker {broker:<4}  {int(qty):>8,} shares  {bar} {pct:.1f}%")
-
-    if accumulators:
-        lines += [
-            "",
-            "🟢 <b>Real Buyers</b>  <i>— bought MORE than they sold (net holders)</i>",
-            "<i>These brokers ended the day with extra shares — a bullish signal</i>",
-            DIV,
-        ]
-        for broker, qty in accumulators:
-            lines.append(f"  Broker {broker:<4}  kept  +{int(qty):>7,} extra shares")
-
-    if distributors:
-        lines += [
-            "",
-            "🔴 <b>Real Sellers</b>  <i>— sold MORE than they bought (net exiters)</i>",
-            "<i>These brokers ended the day with fewer shares — a bearish signal</i>",
-            DIV,
-        ]
-        for broker, qty in distributors:
-            lines.append(f"  Broker {broker:<4}  shed   {int(abs(qty)):>7,} shares net")
+    for broker, qty in accumulators + distributors:
+        sign = "+" if qty >= 0 else "-"
+        lines.append(
+            f"  Broker {broker:<4}  Buy {int(buy.get(broker, 0)):>7,}  "
+            f"Sell {int(sell.get(broker, 0)):>7,}  Net {sign}{int(abs(qty)):>7,}"
+        )
 
     if concentration > 50:
-        conc_note = "🚨 Very HIGH — 3 brokers control over half the volume. Could be institutional or manipulative."
+        conc_note = "🚨 Very HIGH — 3 brokers handled over half the trading. Could be institutional or manipulative."
     elif concentration > 25:
         conc_note = "⚠️ MODERATE — a few big players dominate. Worth watching closely."
     else:
@@ -132,9 +104,8 @@ def analyze(symbol: str, rows: list[dict], date: str) -> str:
         "",
         f"{conc_flag} <b>Market Concentration</b>",
         DIV,
-        f"  Top 3 brokers controlled <b>{concentration:.1f}%</b> of all {symbol} trading.",
+        f"  Top 3 brokers handled <b>{concentration:.1f}%</b> of all {symbol} trading (buy + sell combined).",
         f"  {conc_note}",
-        "<i>High concentration can mean a big institution is making a move.</i>",
         "",
         "🧠 <b>Bottom Line</b>",
         DIV,

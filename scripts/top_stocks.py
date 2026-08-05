@@ -1,6 +1,5 @@
 """Top gainers/losers/turnover or sector-wise performance."""
 import os
-import sys
 from nepse.common import get_scraper, DIV, fval
 from nepse.telegram import send
 

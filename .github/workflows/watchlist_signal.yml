@@ -2,9 +2,9 @@ name: Watchlist ML Buy Signal
 
 on:
   schedule:
-    # 9:00 AM NST (Sun–Thu) = 3:15 AM UTC
+    # 9:00 AM NST (Mon–Fri) = 3:15 AM UTC
     # NEPSE market opens at 11 AM NST — signals are ready well before open
-    - cron: "15 3 * * 0-4"
+    - cron: "15 3 * * 1-5"
   workflow_dispatch:
 
 jobs:

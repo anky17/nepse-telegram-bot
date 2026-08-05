@@ -4,7 +4,7 @@ import sys
 from datetime import datetime
 from nepse_scraper import NepseScraper
 from nepse.common import get_scraper, DIV, NST
-from nepse.telegram import send, PRINT_MODE
+from nepse.telegram import send
 from nepse.kv import get as kv_get, put_json as kv_put_json
 
 args = [a for a in sys.argv[1:] if a != "--print"]
@@ -150,13 +150,12 @@ def analyze_floorsheet(scraper: NepseScraper, symbol: str) -> str:
             for b in all_brokers
         }
 
-        top_buyers = sorted(buy.items(), key=lambda x: x[1]["qty"], reverse=True)[:5]
-        top_sellers = sorted(sell.items(), key=lambda x: x[1]["qty"], reverse=True)[:5]
         top_accum = sorted([(b, v) for b, v in net.items() if v > 0], key=lambda x: x[1], reverse=True)[:3]
         top_distrib = sorted([(b, v) for b, v in net.items() if v < 0], key=lambda x: x[1])[:3]
 
-        top3_qty = sum(v["qty"] for _, v in top_buyers[:3])
-        concentration = (top3_qty / total_qty * 100) if total_qty else 0
+        activity = {b: buy.get(b, {}).get("qty", 0) + sell.get(b, {}).get("qty", 0) for b in all_brokers}
+        top3_qty = sum(v for _, v in sorted(activity.items(), key=lambda x: x[1], reverse=True)[:3])
+        concentration = (top3_qty / (total_qty * 2) * 100) if total_qty else 0
         conc_flag = "🚨" if concentration > 50 else ("⚠️" if concentration > 30 else "✅")
 
         # Verdict: compare total accumulated vs distributed
@@ -174,44 +173,21 @@ def analyze_floorsheet(scraper: NepseScraper, symbol: str) -> str:
             f"<i>{int(total_qty):,} shares traded across {len(all_rows):,} transactions</i>",
             "<i>Each 'Broker' is a licensed stockbroker firm registered with NEPSE</i>",
             "",
-            "📥 <b>Top Buyers</b>  <i>— who bought the most shares today</i>",
+            "📊 <b>Broker Positions</b>  <i>— net shares bought vs. sold today</i>",
+            "<i>Net = Buy − Sell. Positive = building a position, negative = exiting one.</i>",
             DIV,
         ]
-        for i, (broker, data) in enumerate(top_buyers, 1):
-            pct = data["qty"] / total_qty * 100
-            bar = "▓" * min(int(pct / 2), 10)
-            lines.append(f"  {i}. Broker {broker:<4}  {int(data['qty']):>8,} shares  {bar} {pct:.1f}%")
-
-        lines += [
-            "",
-            "📤 <b>Top Sellers</b>  <i>— who sold the most shares today</i>",
-            DIV,
-        ]
-        for i, (broker, data) in enumerate(top_sellers, 1):
-            pct = data["qty"] / total_qty * 100
-            bar = "▓" * min(int(pct / 2), 10)
-            lines.append(f"  {i}. Broker {broker:<4}  {int(data['qty']):>8,} shares  {bar} {pct:.1f}%")
-
-        lines += [
-            "",
-            "🟢 <b>Real Buyers</b>  <i>— bought MORE than they sold (net holders)</i>",
-            "<i>These brokers ended the day with extra shares — a bullish signal</i>",
-            DIV,
-        ]
-        for broker, qty in top_accum:
-            lines.append(f"  Broker {broker:<4}  kept  +{int(qty):>7,} extra shares")
-
-        lines += [
-            "",
-            "🔴 <b>Real Sellers</b>  <i>— sold MORE than they bought (net exiters)</i>",
-            "<i>These brokers ended the day with fewer shares — a bearish signal</i>",
-            DIV,
-        ]
-        for broker, qty in top_distrib:
-            lines.append(f"  Broker {broker:<4}  shed   {int(abs(qty)):>7,} shares net")
+        for broker, qty in top_accum + top_distrib:
+            sign = "+" if qty >= 0 else "-"
+            buy_qty = buy.get(broker, {}).get("qty", 0)
+            sell_qty = sell.get(broker, {}).get("qty", 0)
+            lines.append(
+                f"  Broker {broker:<4}  Buy {int(buy_qty):>7,}  "
+                f"Sell {int(sell_qty):>7,}  Net {sign}{int(abs(qty)):>7,}"
+            )
 
         if concentration > 50:
-            conc_note = "🚨 Very HIGH — just 3 brokers control over half the volume. Could be institutional or manipulative."
+            conc_note = "🚨 Very HIGH — just 3 brokers handled over half the trading. Could be institutional or manipulative."
         elif concentration > 30:
             conc_note = "⚠️ MODERATE — a few big players dominate. Worth watching."
         else:
@@ -221,9 +197,8 @@ def analyze_floorsheet(scraper: NepseScraper, symbol: str) -> str:
             "",
             f"{conc_flag} <b>Market Concentration</b>",
             DIV,
-            f"  Top 3 brokers controlled <b>{concentration:.1f}%</b> of all {symbol} trading.",
+            f"  Top 3 brokers handled <b>{concentration:.1f}%</b> of all {symbol} trading (buy + sell combined).",
             f"  {conc_note}",
-            "<i>High concentration can mean a big institution is making a move.</i>",
             "",
             "🧠 <b>Bottom Line</b>",
             DIV,

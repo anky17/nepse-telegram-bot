@@ -199,10 +199,9 @@ def train_and_score(train_df: pd.DataFrame, latest: dict) -> list:
 
     # Train on data up to the final time-series fold boundary
     X_train_raw = X_raw.iloc[best_fold_indices]
-    y_train = y[best_fold_indices]
 
     scaler = RobustScaler()
-    X_train = scaler.fit_transform(X_train_raw)
+    scaler.fit(X_train_raw)
     # Refit on all data to maximize signal (using scaler fit from train fold)
     X_all = scaler.transform(X_raw)
 
