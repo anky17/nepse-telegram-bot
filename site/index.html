@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GHANTAGHAR — NEPSE Terminal</title>
+<meta name="description" content="A live-feeling terminal for the Nepal Stock Exchange: daily recap, market breadth, top movers, and per-symbol history charts.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A//www.w3.org/2000/svg%22%20viewBox%3D%220%200%2064%2064%22%3E%3Crect%20width%3D%2264%22%20height%3D%2264%22%20rx%3D%2212%22%20fill%3D%22%230b0f14%22/%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22%233ddc84%22%20stroke-width%3D%223.5%22%20stroke-linejoin%3D%22round%22%20stroke-linecap%3D%22round%22%3E%3Cpath%20d%3D%22M32%206%20L41%2018%20H23%20Z%22/%3E%3Crect%20x%3D%2220%22%20y%3D%2218%22%20width%3D%2224%22%20height%3D%2214%22/%3E%3Ccircle%20cx%3D%2232%22%20cy%3D%2225%22%20r%3D%225.5%22/%3E%3Cline%20x1%3D%2232%22%20y1%3D%2225%22%20x2%3D%2232%22%20y2%3D%2221.5%22/%3E%3Cline%20x1%3D%2232%22%20y1%3D%2225%22%20x2%3D%2234.5%22%20y2%3D%2226.5%22/%3E%3Crect%20x%3D%2227%22%20y%3D%2232%22%20width%3D%2210%22%20height%3D%2222%22/%3E%3Cline%20x1%3D%2218%22%20y1%3D%2254%22%20x2%3D%2246%22%20y2%3D%2254%22/%3E%3C/g%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-main">
+    <div class="brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="26" height="26" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"><path d="M32 4 L42 18 H22 Z"/><rect x="19" y="18" width="26" height="16"/><circle cx="32" cy="26" r="6"/><line x1="32" y1="26" x2="32" y2="22"/><line x1="32" y1="26" x2="35" y2="27.5"/><rect x="26" y="34" width="12" height="24"/><line x1="16" y1="58" x2="48" y2="58"/></svg>
+      <div class="brand-text">
+        <span class="brand-name">GHANTAGHAR</span>
+        <span class="brand-sub">NEPSE TERMINAL</span>
+      </div>
+    </div>
+    <div class="quick-search" id="quickSearchWrap">
+      <input class="quick-search-input" id="quickSearch" type="text" placeholder="Jump to a share… (press /)" autocomplete="off">
+      <div class="quick-search-results hidden" id="quickSearchResults"></div>
+    </div>
+    <div class="topbar-right">
+      <div class="clock" id="clock">--:--:-- NPT</div>
+      <div class="archive-stat" id="archiveStat">syncing feed…</div>
+      <button class="about-link" id="aboutOpen">ⓘ About</button>
+    </div>
+  </div>
+  <div class="ticker" id="ticker">
+    <div class="ticker-track" id="tickerTrack"></div>
+  </div>
+</header>
+
+<main id="app">
+  <div class="boot" id="boot">
+    <span class="boot-cursor">▌</span> SYNCING NEPSE FEED<span class="dots"></span>
+  </div>
+
+  <section class="pulse hidden" id="pulse">
+    <div class="pulse-mood" id="pulseMood">
+      <span class="mood-icon" id="moodIcon">●</span>
+      <div>
+        <div class="mood-label" id="moodLabel">—</div>
+        <div class="mood-date" id="pulseDate">—</div>
+      </div>
+      <span class="stale-badge hidden" id="staleBadge">last session</span>
+    </div>
+    <div class="breadth" id="breadth">
+      <div class="breadth-bar" id="breadthBar"></div>
+      <div class="breadth-nums" id="breadthNums">— up · — down · — flat</div>
+    </div>
+    <div class="pulse-stats">
+      <div class="pstat"><span class="plabel">Turnover</span><span class="pval" id="statTurnover">—</span></div>
+      <div class="pstat"><span class="plabel">Transactions</span><span class="pval" id="statTrans">—</span></div>
+      <div class="pstat"><span class="plabel">Most Active</span><span class="pval" id="statActive">—</span></div>
+      <div class="pstat"><span class="plabel">Scrips</span><span class="pval" id="statScrips">—</span></div>
+    </div>
+  </section>
+
+  <section class="movers hidden" id="movers">
+    <div class="mover-col">
+      <div class="mover-head gain">▲ TOP GAINERS</div>
+      <table class="mover-table" id="gainersTable"><tbody></tbody></table>
+    </div>
+    <div class="mover-col">
+      <div class="mover-head lose">▼ TOP LOSERS</div>
+      <table class="mover-table" id="losersTable"><tbody></tbody></table>
+    </div>
+  </section>
+
+  <section class="watchlist hidden" id="watchlistSection">
+    <div class="board-head">
+      <span class="board-title">★ WATCHLIST</span>
+    </div>
+    <table class="mover-table watchlist-table" id="watchlistTable"><tbody id="watchlistBody"></tbody></table>
+  </section>
+
+  <section class="board hidden" id="board">
+    <div class="board-head">
+      <span class="board-title">MARKET BOARD</span>
+      <input class="board-search" id="boardSearch" type="text" placeholder="search symbol…" autocomplete="off">
+      <span class="board-count" id="boardCount"></span>
+      <button class="export-btn" id="boardExportBtn">Export CSV</button>
+      <button class="board-toggle" id="boardToggle">Show all ▾</button>
+    </div>
+    <div class="board-scroll collapsed" id="boardScroll">
+      <table class="board-table" id="boardTable">
+        <thead>
+          <tr>
+            <th data-key="symbol">Symbol</th>
+            <th data-key="ltp" class="num">LTP</th>
+            <th data-key="diffPct" class="num">Chg %</th>
+            <th data-key="vol" class="num">Volume</th>
+            <th data-key="turnover" class="num">Turnover</th>
+            <th data-key="high52" class="num">52W H</th>
+            <th data-key="low52" class="num">52W L</th>
+          </tr>
+        </thead>
+        <tbody id="boardBody"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="detail hidden" id="detail">
+    <button class="detail-close" id="detailClose">✕ close</button>
+    <div class="detail-head">
+      <div class="detail-symbol" id="detailSymbol">—</div>
+      <div class="detail-price">
+        <span id="detailLtp">—</span>
+        <span id="detailChg" class="detail-chg">—</span>
+      </div>
+      <button class="detail-star" id="detailStar">☆ Watch</button>
+    </div>
+    <div class="detail-grid" id="detailGrid"></div>
+    <div class="chart-controls">
+      <div class="range-picker" id="rangePicker">
+        <button data-range="30">1M</button>
+        <button data-range="90">3M</button>
+        <button data-range="180">6M</button>
+        <button data-range="365">1Y</button>
+        <button data-range="0" class="active">ALL</button>
+      </div>
+      <div class="chart-controls-right">
+        <div class="indicator-picker" id="indicatorPicker">
+          <button data-ind="sma20" class="active">SMA 20</button>
+          <button data-ind="sma50" class="active">SMA 50</button>
+          <button data-ind="rsi">RSI 14</button>
+        </div>
+        <button class="export-btn" id="historyExportBtn">Export CSV</button>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chartCanvas"></canvas>
+      <div class="chart-tooltip hidden" id="chartTooltip"></div>
+    </div>
+    <div class="rsi-wrap hidden" id="rsiWrap">
+      <canvas id="rsiCanvas"></canvas>
+    </div>
+
+    <div class="broker-section">
+      <div class="broker-head">
+        <span class="board-title">BROKER POSITIONS</span>
+        <button class="broker-load-btn" id="brokerLoadBtn">Load floorsheet ▾</button>
+      </div>
+      <div class="broker-result hidden" id="brokerResult"></div>
+    </div>
+
+    <div class="broker-section">
+      <div class="broker-head">
+        <span class="board-title">5-DAY BROKER TREND</span>
+        <button class="broker-load-btn" id="trendLoadBtn">Load trend (~15MB) ▾</button>
+      </div>
+      <div class="broker-result hidden" id="trendResult"></div>
+    </div>
+
+    <div class="broker-section">
+      <div class="broker-head">
+        <span class="board-title">DIVIDEND HISTORY</span>
+        <button class="broker-load-btn" id="dividendLoadBtn">Load dividends ▾</button>
+      </div>
+      <div class="broker-result hidden" id="dividendResult"></div>
+    </div>
+  </section>
+
+  <div class="about-overlay hidden" id="aboutOverlay">
+    <div class="about-modal">
+      <button class="detail-close" id="aboutClose">✕ close</button>
+      <div class="about-brand">
+        <svg class="brand-mark" viewBox="0 0 64 64" width="30" height="30" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"><path d="M32 4 L42 18 H22 Z"/><rect x="19" y="18" width="26" height="16"/><circle cx="32" cy="26" r="6"/><line x1="32" y1="26" x2="32" y2="22"/><line x1="32" y1="26" x2="35" y2="27.5"/><rect x="26" y="34" width="12" height="24"/><line x1="16" y1="58" x2="48" y2="58"/></svg>
+        <div>
+          <div class="brand-name">GHANTAGHAR</div>
+          <div class="brand-sub">NEPSE TERMINAL</div>
+        </div>
+      </div>
+      <p>A free, open NEPSE market terminal — daily recap, broker floorsheet analysis, technical indicators, and a watchlist, all in one page. Named after Kathmandu's clock tower: a public timekeeper for the market.</p>
+      <p>Built and maintained by <a href="https://ankitdiyal.com.np" target="_blank" rel="noopener"><b>Ankit Diyal</b></a>.</p>
+      <p class="about-dim">Data: NEPSE daily sessions via the ShareSansarScraper archive and Nepse-All-Scraper's floorsheet/dividend data, both open-source community projects. Not affiliated with NEPSE. For information only, not investment advice.</p>
+    </div>
+  </div>
+
+  <div class="feed-error hidden" id="feedError">
+    FEED UNAVAILABLE — the upstream archive didn't respond. Try refreshing in a moment.
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="footer-credit">Made with <span class="heart">♥</span> by <a href="https://ankitdiyal.com.np" target="_blank" rel="noopener"><b>Ankit Diyal</b></a></div>
+  <hr class="footer-divider">
+  <div class="footer-legal">
+    <button class="footer-link" id="termsOpen">Terms of Use</button>
+    <span class="footer-dot">·</span>
+    <button class="footer-link" id="privacyOpen">Privacy Policy</button>
+  </div>
+  <div class="footer-links">
+    <span>Data: NEPSE daily sessions via the <a href="https://omitnomis.github.io/ShareSansarScraper/" target="_blank" rel="noopener">ShareSansarScraper</a> open archive.</span>
+    <span>Not affiliated with NEPSE. For information only, not investment advice.</span>
+  </div>
+</footer>
+
+<div class="about-overlay hidden" id="termsOverlay">
+  <div class="about-modal">
+    <button class="detail-close" id="termsClose">✕ close</button>
+    <div class="about-brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="26" height="26" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"><path d="M32 4 L42 18 H22 Z"/><rect x="19" y="18" width="26" height="16"/><circle cx="32" cy="26" r="6"/><line x1="32" y1="26" x2="32" y2="22"/><line x1="32" y1="26" x2="35" y2="27.5"/><rect x="26" y="34" width="12" height="24"/><line x1="16" y1="58" x2="48" y2="58"/></svg>
+      <div class="brand-name">TERMS OF USE</div>
+    </div>
+    <p>GHANTAGHAR is a free, personal, non-commercial project. There's no login, no account, and no fee to use it.</p>
+    <p>Market data is pulled from open, community-maintained archives (ShareSansarScraper and Nepse-All-Scraper on GitHub) — it's provided "as is," without any guarantee of accuracy, completeness, or timeliness. End-of-day figures aren't published until after market close, and upstream sources can occasionally be delayed or unavailable.</p>
+    <p>Nothing on this site is investment advice or a recommendation to buy or sell any security. Do your own research, or consult a licensed advisor, before making financial decisions.</p>
+    <p class="about-dim">Not affiliated with NEPSE, ShareSansar, or any brokerage. Use of this site is at your own discretion.</p>
+  </div>
+</div>
+
+<div class="about-overlay hidden" id="privacyOverlay">
+  <div class="about-modal">
+    <button class="detail-close" id="privacyClose">✕ close</button>
+    <div class="about-brand">
+      <svg class="brand-mark" viewBox="0 0 64 64" width="26" height="26" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"><path d="M32 4 L42 18 H22 Z"/><rect x="19" y="18" width="26" height="16"/><circle cx="32" cy="26" r="6"/><line x1="32" y1="26" x2="32" y2="22"/><line x1="32" y1="26" x2="35" y2="27.5"/><rect x="26" y="34" width="12" height="24"/><line x1="16" y1="58" x2="48" y2="58"/></svg>
+      <div class="brand-name">PRIVACY POLICY</div>
+    </div>
+    <p>This site has no backend server, no user accounts, and collects nothing about you. It runs entirely in your browser.</p>
+    <p>The only thing it stores is your watchlist — the symbols you star — saved in your browser's <code>localStorage</code>. That never leaves your device; it isn't sent to me or anyone else.</p>
+    <p>No cookies, no analytics, no trackers, no ads.</p>
+    <p class="about-dim">Your browser fetches market data directly from third-party open archives on GitHub — those requests go straight from your browser to GitHub's servers, not through us.</p>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

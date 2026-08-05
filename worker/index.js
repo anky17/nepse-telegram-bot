@@ -343,7 +343,7 @@ export default {
         "  10:55 AM  Morning briefing",
         "  11:00 AM  Market open summary",
         "  Every 30 min  Market update",
-        "   5:15 PM  EOD recap",
+        "   8:00 PM  EOD recap",
         "   8:00 PM  Broker floorsheet analysis",
         "  Daily  IPO / rights notices check",
       ].join("\n"));

@@ -2,9 +2,11 @@ name: EOD Market Recap
 
 on:
   schedule:
-    # Target: 5:15 PM NST (ShareSansar recap data isn't ready until ~5 PM post-close).
-    # NST = UTC+5:45  →  17:15 NST = 11:30 UTC  →  start at 11:27 UTC
-    - cron: "27 11 * * 1-5"
+    # Target: 8:00 PM NST. The upstream ShareSansar scraper (omitnomis/ShareSansarScraper,
+    # served via GitHub Pages) doesn't actually publish the day's recap until ~12:13-13:50 UTC
+    # (17:58-19:35 NST) — running earlier returned the previous day's cached data.
+    # NST = UTC+5:45  →  20:00 NST = 14:15 UTC
+    - cron: "15 14 * * 1-5"
   workflow_dispatch:
 
 jobs:
