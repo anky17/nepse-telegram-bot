@@ -241,8 +241,8 @@ def _build_message(results: list, total_scanned: int, sym_names: dict) -> str:
     lines = [
         f"🔭 <b>Pre-Market Anomaly Scan — {date_str}</b>",
         DIV,
-        f"<i>Scanned {total_scanned} equities · IsolationForest on 14-day price+volume patterns</i>",
-        "<i>Stocks with anomalous patterns often see bigger moves in the session ahead.</i>",
+        f"<i>Scanned {total_scanned} stocks for ones trading unusually vs. their own recent pattern</i>",
+        "<i>Stocks flagged here often see bigger moves in the session ahead.</i>",
         "",
     ]
 
@@ -251,7 +251,6 @@ def _build_message(results: list, total_scanned: int, sym_names: dict) -> str:
         ltp = stats["ltp"]
         pct = stats["pct_chg"]
         spike = stats["spike_5d"]
-        rsi = stats["rsi14"]
         sign = "+" if pct >= 0 else ""
         arrow = "▲" if pct >= 0 else "▼"
         reasons = _explain(stats)
@@ -263,7 +262,7 @@ def _build_message(results: list, total_scanned: int, sym_names: dict) -> str:
         lines += [
             header,
             f"   💰 LTP: <b>Rs {ltp:,.1f}</b>  {arrow} <code>{sign}{pct:.2f}%</code>",
-            f"   📦 Vol: {spike:.1f}× normal  · RSI: {rsi:.0f}  · Anomaly score: <code>{score:.3f}</code>",
+            f"   📦 Volume: {spike:.1f}× normal today",
         ]
         for r in reasons[:2]:
             lines.append(f"   • {r}")
@@ -272,8 +271,8 @@ def _build_message(results: list, total_scanned: int, sym_names: dict) -> str:
     lines += [
         DIV,
         "📌 <b>How to read this scan:</b>",
-        "  Lower anomaly score = more unusual pattern = higher potential for a big move today.",
-        "  Volume spike + RSI extreme = strongest setup. Use /stock SYM for full details.",
+        "  Stocks are ranked #1 = most unusual today. Unusual often means a bigger move is coming — up or down.",
+        "  Use /stock SYM for the full picture before deciding anything.",
         "",
         "⚠️ <i>Not financial advice. Always do your own research before investing.</i>",
     ]

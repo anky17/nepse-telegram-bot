@@ -68,14 +68,21 @@ def check_alerts_and_circuits(today_prices: list[dict]) -> None:
         ltp = fval(stock, "lastUpdatedPrice", "ltp", "closePrice")
 
         if abs(pct) >= 9.5:
-            direction = "UPPER CIRCUIT" if pct > 0 else "LOWER CIRCUIT"
-            icon = "🚨" if pct > 0 else "💥"
-            sign = "+" if pct > 0 else ""
+            hit_top = pct > 0
+            direction = "UPPER CIRCUIT" if hit_top else "LOWER CIRCUIT"
+            icon = "🚨" if hit_top else "💥"
+            sign = "+" if hit_top else ""
+            explainer = (
+                "Hit the daily limit for how much it can rise — buyers are lining up, no sellers left today."
+                if hit_top else
+                "Hit the daily limit for how much it can fall — sellers are rushing out, few buyers left today."
+            )
             send(
                 f"{icon} <b>{direction} — {sym}</b>\n"
                 f"{DIV}\n"
                 f"LTP  : Rs {ltp:,.2f}\n"
-                f"Change: <b>{sign}{pct:.2f}%</b>"
+                f"Change: <b>{sign}{pct:.2f}%</b>\n"
+                f"<i>{explainer}</i>"
             )
             alerted_today[sym] = True
             new_circuits.append(sym)

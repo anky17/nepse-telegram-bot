@@ -113,7 +113,7 @@ export default {
     } else if (text === "/scan") {
       const ok = await dispatchWorkflow(env, "smart_scan.yml", {});
       await send(env.TELEGRAM_TOKEN, chatId, ok
-        ? "🔭 <b>Running anomaly scan...</b>\n\nPre-market report will arrive in ~60 seconds.\n\n<i>IsolationForest scans all NEPSE equities for unusual price+volume patterns that tend to precede big moves.</i>"
+        ? "🔭 <b>Running anomaly scan...</b>\n\nPre-market report will arrive in ~60 seconds.\n\n<i>Scans every NEPSE stock for unusual price+volume patterns that tend to precede big moves.</i>"
         : "⚠️ Could not trigger scan. Try again.");
 
     } else if (text === "/top") {

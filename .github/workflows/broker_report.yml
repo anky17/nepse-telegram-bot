@@ -2,14 +2,9 @@ name: NEPSE Broker Report
 
 on:
   schedule:
-    # 8:00 PM NST = 14:15 UTC (Mon–Fri) — floorsheet data published by NEPSE in evening
+    # 8:00 PM NST = 14:15 UTC (Mon–Fri) — market close summary
     - cron: "15 14 * * 1-5"
   workflow_dispatch:
-    inputs:
-      symbols:
-        description: "Stock symbols (comma-separated, e.g. NABIL,NICA)"
-        required: false
-        type: string
 
 jobs:
   broker-report:
@@ -27,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run broker analysis
+      - name: Run market close summary
         env:
           PYTHONPATH: ${{ github.workspace }}
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
@@ -35,9 +30,4 @@ jobs:
           CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CF_KV_NAMESPACE_ID: ${{ secrets.CF_KV_NAMESPACE_ID }}
-        run: |
-          if [ -n "${{ github.event.inputs.symbols }}" ]; then
-            python scripts/broker_analysis.py ${{ github.event.inputs.symbols }}
-          else
-            python scripts/broker_analysis.py
-          fi
+        run: python scripts/broker_analysis.py
