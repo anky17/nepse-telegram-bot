@@ -95,7 +95,8 @@ a { color: var(--cyan); }
 }
 .qs-item:last-child { border-bottom: none; }
 .qs-item:hover { background: var(--bg-panel); }
-.qs-sym { font-weight: 600; flex: 1; }
+.qs-sym { font-weight: 600; flex: 1; display: flex; flex-direction: column; gap: 1px; }
+.qs-name { font-weight: 400; font-size: 11px; color: var(--text-dim); }
 .qs-ltp { color: var(--text-dim); font-variant-numeric: tabular-nums; }
 .qs-chg { font-variant-numeric: tabular-nums; min-width: 60px; text-align: right; }
 
@@ -135,7 +136,7 @@ a { color: var(--cyan); }
 .ticker-item .chg.up { color: var(--green); }
 .ticker-item .chg.down { color: var(--red); }
 
-.brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; cursor: pointer; }
 
 .brand-mark {
   color: var(--green);
@@ -367,15 +368,16 @@ section {
 .detail-chg { font-size: 13px; }
 
 .detail-star {
+  display: inline-block;
   background: var(--bg-raised);
   border: 1px solid var(--border);
   color: var(--text-dim);
   font-family: var(--mono);
-  font-size: 11px;
-  padding: 5px 10px;
+  font-size: 12px;
+  padding: 7px 14px;
   border-radius: 4px;
   cursor: pointer;
-  margin-left: auto;
+  margin: 10px 0 4px;
 }
 .detail-star:hover { color: var(--amber); }
 .detail-star.active { color: var(--amber); border-color: var(--amber); }
@@ -551,8 +553,12 @@ section {
   40% { transform: scale(1); }
 }
 
+.board-scroll, .broker-result { -webkit-overflow-scrolling: touch; }
+
 @media (max-width: 640px) {
   main, .topbar-main, .ticker, .footer { padding-left: 14px; padding-right: 14px; }
+  main { gap: 12px; }
+  .topbar-main { gap: 12px; }
 
   .movers { grid-template-columns: 1fr; }
   .topbar-right { gap: 10px; font-size: 10px; }
@@ -562,16 +568,41 @@ section {
   .board-table th:nth-child(6), .board-table td:nth-child(6),
   .board-table th:nth-child(7), .board-table td:nth-child(7) { display: none; }
   .board-search { max-width: none; flex: 1 1 100%; }
+  .board-count { flex-basis: 100%; margin-left: 0; }
 
   .detail { padding: 16px 14px; }
   .detail-head { padding-right: 54px; }
   .detail-close { top: 12px; right: 12px; padding: 4px 8px; font-size: 10px; }
   .detail-symbol { font-size: 18px; }
+  .detail-star { width: 100%; text-align: center; padding: 10px 14px; }
+
+  #chartCanvas { height: 200px; }
 
   .chart-controls { flex-direction: column; align-items: stretch; }
   .chart-controls-right { justify-content: space-between; }
 
+  .pulse { gap: 16px; }
+  .pulse-stats { gap: 16px 20px; }
+
+  .broker-head { gap: 8px; }
+  .broker-load-btn { width: 100%; }
+
   .about-modal { padding: 20px; }
+
+  /* Bump touch targets — small icon/text buttons are otherwise well under the
+     ~44px comfortable-tap-size on phones. */
+  .about-link, .export-btn, .board-toggle, .broker-load-btn,
+  .range-picker button, .indicator-picker button, .footer-link {
+    padding: 8px 12px;
+    font-size: 12px;
+  }
+  .star-toggle { padding: 4px; margin: -4px 2px -4px -4px; }
+}
+
+@media (max-width: 400px) {
+  .detail-grid { grid-template-columns: repeat(auto-fill, minmax(92px, 1fr)); gap: 8px; }
+  .pulse-mood { min-width: 0; }
+  .breadth { min-width: 0; }
 }
 
 /* ---------- about modal ---------- */

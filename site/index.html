@@ -12,7 +12,7 @@
 
 <header class="topbar">
   <div class="topbar-main">
-    <div class="brand">
+    <div class="brand" id="brand" role="link" tabindex="0" title="Reload GHANTAGHAR">
       <svg class="brand-mark" viewBox="0 0 64 64" width="26" height="26" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"><path d="M32 4 L42 18 H22 Z"/><rect x="19" y="18" width="26" height="16"/><circle cx="32" cy="26" r="6"/><line x1="32" y1="26" x2="32" y2="22"/><line x1="32" y1="26" x2="35" y2="27.5"/><rect x="26" y="34" width="12" height="24"/><line x1="16" y1="58" x2="48" y2="58"/></svg>
       <div class="brand-text">
         <span class="brand-name">GHANTAGHAR</span>
@@ -38,6 +38,67 @@
   <div class="boot" id="boot">
     <span class="boot-cursor">▌</span> SYNCING NEPSE FEED<span class="dots"></span>
   </div>
+
+  <section class="detail hidden" id="detail">
+    <button class="detail-close" id="detailClose">✕ close</button>
+    <div class="detail-head">
+      <div class="detail-symbol" id="detailSymbol">—</div>
+      <div class="detail-price">
+        <span id="detailLtp">—</span>
+        <span id="detailChg" class="detail-chg">—</span>
+      </div>
+    </div>
+    <button class="detail-star" id="detailStar">☆ Add to Watchlist</button>
+    <div class="detail-grid" id="detailGrid"></div>
+    <div class="chart-controls">
+      <div class="range-picker" id="rangePicker">
+        <button data-range="30">1M</button>
+        <button data-range="90">3M</button>
+        <button data-range="180">6M</button>
+        <button data-range="365">1Y</button>
+        <button data-range="0" class="active">ALL</button>
+      </div>
+      <div class="chart-controls-right">
+        <div class="indicator-picker" id="indicatorPicker">
+          <button data-ind="sma20" class="active">SMA 20</button>
+          <button data-ind="sma50" class="active">SMA 50</button>
+          <button data-ind="rsi">RSI 14</button>
+        </div>
+        <button class="export-btn" id="historyExportBtn">Export CSV</button>
+      </div>
+    </div>
+    <div class="chart-wrap">
+      <canvas id="chartCanvas"></canvas>
+      <div class="chart-tooltip hidden" id="chartTooltip"></div>
+    </div>
+    <div class="rsi-wrap hidden" id="rsiWrap">
+      <canvas id="rsiCanvas"></canvas>
+    </div>
+
+    <div class="broker-section">
+      <div class="broker-head">
+        <span class="board-title">BROKER POSITIONS</span>
+        <button class="broker-load-btn" id="brokerLoadBtn">Load floorsheet ▾</button>
+      </div>
+      <div class="broker-result hidden" id="brokerResult"></div>
+    </div>
+
+    <div class="broker-section">
+      <div class="broker-head">
+        <span class="board-title">5-DAY BROKER TREND</span>
+        <button class="broker-load-btn" id="trendLoadBtn">Load trend (~15MB) ▾</button>
+      </div>
+      <div class="broker-result hidden" id="trendResult"></div>
+    </div>
+
+    <div class="broker-section">
+      <div class="broker-head">
+        <span class="board-title">DIVIDEND HISTORY</span>
+        <button class="broker-load-btn" id="dividendLoadBtn">Load dividends ▾</button>
+      </div>
+      <div class="broker-result hidden" id="dividendResult"></div>
+    </div>
+  </section>
 
   <section class="pulse hidden" id="pulse">
     <div class="pulse-mood" id="pulseMood">
@@ -101,67 +162,6 @@
         </thead>
         <tbody id="boardBody"></tbody>
       </table>
-    </div>
-  </section>
-
-  <section class="detail hidden" id="detail">
-    <button class="detail-close" id="detailClose">✕ close</button>
-    <div class="detail-head">
-      <div class="detail-symbol" id="detailSymbol">—</div>
-      <div class="detail-price">
-        <span id="detailLtp">—</span>
-        <span id="detailChg" class="detail-chg">—</span>
-      </div>
-      <button class="detail-star" id="detailStar">☆ Watch</button>
-    </div>
-    <div class="detail-grid" id="detailGrid"></div>
-    <div class="chart-controls">
-      <div class="range-picker" id="rangePicker">
-        <button data-range="30">1M</button>
-        <button data-range="90">3M</button>
-        <button data-range="180">6M</button>
-        <button data-range="365">1Y</button>
-        <button data-range="0" class="active">ALL</button>
-      </div>
-      <div class="chart-controls-right">
-        <div class="indicator-picker" id="indicatorPicker">
-          <button data-ind="sma20" class="active">SMA 20</button>
-          <button data-ind="sma50" class="active">SMA 50</button>
-          <button data-ind="rsi">RSI 14</button>
-        </div>
-        <button class="export-btn" id="historyExportBtn">Export CSV</button>
-      </div>
-    </div>
-    <div class="chart-wrap">
-      <canvas id="chartCanvas"></canvas>
-      <div class="chart-tooltip hidden" id="chartTooltip"></div>
-    </div>
-    <div class="rsi-wrap hidden" id="rsiWrap">
-      <canvas id="rsiCanvas"></canvas>
-    </div>
-
-    <div class="broker-section">
-      <div class="broker-head">
-        <span class="board-title">BROKER POSITIONS</span>
-        <button class="broker-load-btn" id="brokerLoadBtn">Load floorsheet ▾</button>
-      </div>
-      <div class="broker-result hidden" id="brokerResult"></div>
-    </div>
-
-    <div class="broker-section">
-      <div class="broker-head">
-        <span class="board-title">5-DAY BROKER TREND</span>
-        <button class="broker-load-btn" id="trendLoadBtn">Load trend (~15MB) ▾</button>
-      </div>
-      <div class="broker-result hidden" id="trendResult"></div>
-    </div>
-
-    <div class="broker-section">
-      <div class="broker-head">
-        <span class="board-title">DIVIDEND HISTORY</span>
-        <button class="broker-load-btn" id="dividendLoadBtn">Load dividends ▾</button>
-      </div>
-      <div class="broker-result hidden" id="dividendResult"></div>
     </div>
   </section>
 

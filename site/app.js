@@ -12,6 +12,7 @@ const state = {
   range: 0,              // days; 0 = all
   currentSymbol: null,
   floorsheetByDate: new Map(), // date -> { date, rows }
+  companyNames: new Map(), // symbol -> full company name
   watchlist: loadWatchlist(),
   indicators: { sma20: true, sma50: true, rsi: false },
 };
@@ -76,12 +77,24 @@ async function fetchJSON(path) {
   return r.json();
 }
 
+async function loadCompanyNames() {
+  try {
+    const r = await fetch("companies.json", { cache: "no-store" });
+    if (!r.ok) return;
+    const json = await r.json();
+    state.companyNames = new Map(Object.entries(json));
+  } catch {
+    // full-name search just degrades to symbol-only search
+  }
+}
+
 async function boot() {
   try {
     const [meta, recap, latest] = await Promise.all([
       fetchJSON("meta.json"),
       fetchJSON("recap/latest.json"),
       fetchJSON("latest.json"),
+      loadCompanyNames(),
     ]);
 
     $("archiveStat").textContent = `${meta.tradingDays} sessions archived since ${meta.firstDate}`;
@@ -165,10 +178,16 @@ function renderMovers(recap) {
   (recap.topLosers || []).slice(0, 5).forEach((l) => lBody.appendChild(moverRow(l)));
 }
 
+function matchesSearch(symbol, q) {
+  if (symbol.includes(q)) return true;
+  const name = state.companyNames.get(symbol);
+  return !!name && name.toUpperCase().includes(q);
+}
+
 function sortedFilteredRows() {
   const q = state.search.trim().toUpperCase();
   let rows = state.latestRows;
-  if (q) rows = rows.filter((r) => r.symbol.includes(q));
+  if (q) rows = rows.filter((r) => matchesSearch(r.symbol, q));
   const key = state.sortKey;
   const dir = state.sortDir;
   return [...rows].sort((a, b) => {
@@ -295,14 +314,16 @@ function renderQuickSearchResults(query) {
     return;
   }
   const matches = state.latestRows
-    .filter((r) => r.symbol.includes(q))
+    .filter((r) => matchesSearch(r.symbol, q))
     .sort((a, b) => (b.turnover || 0) - (a.turnover || 0))
     .slice(0, 8);
 
   results.innerHTML = matches.length
     ? matches.map((r) => {
         const cls = r.diffPct >= 0 ? "up" : "down";
-        return `<div class="qs-item" data-sym="${r.symbol}"><span class="qs-sym">${r.symbol}</span><span class="qs-ltp">${fmtNum(r.ltp, 1)}</span><span class="qs-chg ${cls}">${fmtPct(r.diffPct)}</span></div>`;
+        const name = state.companyNames.get(r.symbol);
+        const nameHtml = name ? `<span class="qs-name">${name}</span>` : "";
+        return `<div class="qs-item" data-sym="${r.symbol}"><span class="qs-sym">${r.symbol}${nameHtml}</span><span class="qs-ltp">${fmtNum(r.ltp, 1)}</span><span class="qs-chg ${cls}">${fmtPct(r.diffPct)}</span></div>`;
       }).join("")
     : `<div class="qs-empty">No match</div>`;
   results.classList.remove("hidden");
@@ -390,8 +411,11 @@ async function openDetail(symbol) {
   ].map(([label, val]) => `<div class="dstat"><span class="plabel">${label}</span><span class="pval">${val}</span></div>`).join("")
     + `<div class="dstat"><span class="plabel">Vol vs 30D Avg</span><span class="pval" id="volAvgStat">—</span></div>`;
 
-  $("detail").classList.remove("hidden");
-  $("detail").scrollIntoView({ behavior: "smooth", block: "start" });
+  const detailEl = $("detail");
+  const topbar = document.querySelector(".topbar");
+  detailEl.style.scrollMarginTop = `${topbar.offsetHeight + 10}px`;
+  detailEl.classList.remove("hidden");
+  detailEl.scrollIntoView({ behavior: "smooth", block: "start" });
 
   await loadHistoryAndDraw(symbol);
 }
@@ -404,7 +428,7 @@ $("detailClose").addEventListener("click", () => {
 function updateDetailStar() {
   const btn = $("detailStar");
   const active = state.watchlist.has(state.currentSymbol);
-  btn.textContent = active ? "★ Watching" : "☆ Watch";
+  btn.textContent = active ? "★ In Watchlist" : "☆ Add to Watchlist";
   btn.classList.toggle("active", active);
 }
 
@@ -939,6 +963,18 @@ function wireModal(openId, overlayId, closeId) {
     if (e.target === overlay) overlay.classList.add("hidden");
   });
 }
+
+function reloadHome() {
+  history.replaceState(null, "", location.pathname + location.search);
+  location.reload();
+}
+$("brand").addEventListener("click", reloadHome);
+$("brand").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault();
+    reloadHome();
+  }
+});
 
 wireModal("aboutOpen", "aboutOverlay", "aboutClose");
 wireModal("termsOpen", "termsOverlay", "termsClose");
