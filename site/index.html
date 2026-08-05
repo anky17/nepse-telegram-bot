@@ -35,14 +35,22 @@
 </header>
 
 <main id="app">
+  <div class="data-note">ⓘ Not a live feed — prices update once a day, after NEPSE's market closes.</div>
+
   <div class="boot" id="boot">
-    <span class="boot-cursor">▌</span> SYNCING NEPSE FEED<span class="dots"></span>
+    <div class="boot-spinner">
+      <svg class="boot-logo" viewBox="0 0 64 64" width="34" height="34" fill="none" stroke="currentColor" stroke-width="4" stroke-linejoin="round" stroke-linecap="round"><path d="M32 4 L42 18 H22 Z"/><rect x="19" y="18" width="26" height="16"/><circle cx="32" cy="26" r="6"/><line x1="32" y1="26" x2="32" y2="22"/><line x1="32" y1="26" x2="35" y2="27.5"/><rect x="26" y="34" width="12" height="24"/><line x1="16" y1="58" x2="48" y2="58"/></svg>
+    </div>
+    <div class="boot-text">Loading today's market data<span class="dots"></span></div>
   </div>
 
   <section class="detail hidden" id="detail">
     <button class="detail-close" id="detailClose">✕ close</button>
     <div class="detail-head">
-      <div class="detail-symbol" id="detailSymbol">—</div>
+      <div class="detail-symbol-wrap">
+        <div class="detail-symbol" id="detailSymbol">—</div>
+        <div class="detail-name" id="detailName"></div>
+      </div>
       <div class="detail-price">
         <span id="detailLtp">—</span>
         <span id="detailChg" class="detail-chg">—</span>
@@ -60,8 +68,8 @@
       </div>
       <div class="chart-controls-right">
         <div class="indicator-picker" id="indicatorPicker">
-          <button data-ind="sma20" class="active">SMA 20</button>
-          <button data-ind="sma50" class="active">SMA 50</button>
+          <button data-ind="sma20">SMA 20</button>
+          <button data-ind="sma50">SMA 50</button>
           <button data-ind="rsi">RSI 14</button>
         </div>
         <button class="export-btn" id="historyExportBtn">Export CSV</button>
@@ -102,7 +110,15 @@
 
   <section class="pulse hidden" id="pulse">
     <div class="pulse-mood" id="pulseMood">
-      <span class="mood-icon" id="moodIcon">●</span>
+      <svg class="mood-gauge" id="moodGauge" viewBox="0 0 120 70" width="72" height="42" aria-hidden="true">
+        <path class="gauge-band bear" d="M14,62 A46,46 0 0 1 52.81,16.57"></path>
+        <path class="gauge-band mixed" d="M52.81,16.57 A46,46 0 0 1 80.88,21.01"></path>
+        <path class="gauge-band bull" d="M80.88,21.01 A46,46 0 0 1 106,62"></path>
+        <g class="gauge-needle" id="moodNeedle">
+          <line x1="60" y1="62" x2="60" y2="24"></line>
+          <circle cx="60" cy="62" r="4"></circle>
+        </g>
+      </svg>
       <div>
         <div class="mood-label" id="moodLabel">—</div>
         <div class="mood-date" id="pulseDate">—</div>
@@ -142,12 +158,11 @@
   <section class="board hidden" id="board">
     <div class="board-head">
       <span class="board-title">MARKET BOARD</span>
-      <input class="board-search" id="boardSearch" type="text" placeholder="search symbol…" autocomplete="off">
       <span class="board-count" id="boardCount"></span>
       <button class="export-btn" id="boardExportBtn">Export CSV</button>
-      <button class="board-toggle" id="boardToggle">Show all ▾</button>
+      <button class="board-toggle" id="boardToggle">Hide ▴</button>
     </div>
-    <div class="board-scroll collapsed" id="boardScroll">
+    <div class="board-scroll" id="boardScroll">
       <table class="board-table" id="boardTable">
         <thead>
           <tr>

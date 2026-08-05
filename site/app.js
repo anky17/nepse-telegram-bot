@@ -7,14 +7,13 @@ const state = {
   rowsBySymbol: new Map(),
   sortKey: "turnover",
   sortDir: -1,
-  search: "",
   historyCache: new Map(),
   range: 0,              // days; 0 = all
   currentSymbol: null,
   floorsheetByDate: new Map(), // date -> { date, rows }
   companyNames: new Map(), // symbol -> full company name
   watchlist: loadWatchlist(),
-  indicators: { sma20: true, sma50: true, rsi: false },
+  indicators: { sma20: false, sma50: false, rsi: false },
 };
 
 function loadWatchlist() {
@@ -39,6 +38,8 @@ function toggleWatch(symbol) {
 }
 
 const $ = (id) => document.getElementById(id);
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const MIN_BOOT_MS = 2000;
 
 function fmtNum(n, digits = 2) {
   if (n === null || n === undefined || Number.isNaN(n)) return "—";
@@ -89,6 +90,16 @@ async function loadCompanyNames() {
 }
 
 async function boot() {
+  const isFirstVisit = !localStorage.getItem("ghantaghar:visited");
+  localStorage.setItem("ghantaghar:visited", "1");
+
+  const started = Date.now();
+  const waitOutMinBoot = () => {
+    if (!isFirstVisit) return Promise.resolve();
+    const remaining = MIN_BOOT_MS - (Date.now() - started);
+    return remaining > 0 ? sleep(remaining) : Promise.resolve();
+  };
+
   try {
     const [meta, recap, latest] = await Promise.all([
       fetchJSON("meta.json"),
@@ -103,10 +114,12 @@ async function boot() {
     for (const row of state.latestRows) state.rowsBySymbol.set(row.symbol, row);
 
     renderPulse(recap);
-    renderMovers(recap);
+    renderMovers();
     renderBoard();
     renderWatchlist();
     renderTicker();
+
+    await waitOutMinBoot();
 
     $("boot").classList.add("hidden");
     $("pulse").classList.remove("hidden");
@@ -117,6 +130,7 @@ async function boot() {
     if (hashSym && state.rowsBySymbol.has(hashSym)) openDetail(hashSym);
   } catch (err) {
     console.error(err);
+    await waitOutMinBoot();
     $("boot").classList.add("hidden");
     $("feedError").classList.remove("hidden");
   }
@@ -129,14 +143,14 @@ function renderPulse(recap) {
   const total = advances + declines + unchanged;
   const bullRatio = (advances + declines) ? advances / (advances + declines) : 0;
 
-  let mood, cls, icon;
-  if (bullRatio >= 0.65) { mood = "BROADLY BULLISH"; cls = "bull"; icon = "▲"; }
-  else if (bullRatio >= 0.45) { mood = "MIXED"; cls = "mixed"; icon = "◆"; }
-  else { mood = "BROADLY BEARISH"; cls = "bear"; icon = "▼"; }
+  let mood, cls;
+  if (bullRatio >= 0.65) { mood = "BROADLY BULLISH"; cls = "bull"; }
+  else if (bullRatio >= 0.45) { mood = "MIXED"; cls = "mixed"; }
+  else { mood = "BROADLY BEARISH"; cls = "bear"; }
 
-  const moodIcon = $("moodIcon");
-  moodIcon.textContent = icon;
-  moodIcon.className = `mood-icon ${cls}`;
+  $("moodGauge").classList.remove("bull", "mixed", "bear");
+  $("moodGauge").classList.add(cls);
+  $("moodNeedle").style.transform = `rotate(${bullRatio * 180 - 90}deg)`;
   $("moodLabel").textContent = mood;
   $("pulseDate").textContent = recap.date || "—";
 
@@ -169,13 +183,15 @@ function moverRow(item) {
   return tr;
 }
 
-function renderMovers(recap) {
+function renderMovers() {
   const gBody = $("gainersTable").querySelector("tbody");
   const lBody = $("losersTable").querySelector("tbody");
   gBody.innerHTML = "";
   lBody.innerHTML = "";
-  (recap.topGainers || []).slice(0, 5).forEach((g) => gBody.appendChild(moverRow(g)));
-  (recap.topLosers || []).slice(0, 5).forEach((l) => lBody.appendChild(moverRow(l)));
+  // Derived from the full board (state.latestRows), not the recap feed, which only ever ships 5 of each.
+  const byChange = [...state.latestRows].sort((a, b) => (b.diffPct ?? -Infinity) - (a.diffPct ?? -Infinity));
+  byChange.slice(0, 8).forEach((g) => gBody.appendChild(moverRow(g)));
+  byChange.slice(-8).reverse().forEach((l) => lBody.appendChild(moverRow(l)));
 }
 
 function matchesSearch(symbol, q) {
@@ -185,12 +201,9 @@ function matchesSearch(symbol, q) {
 }
 
 function sortedFilteredRows() {
-  const q = state.search.trim().toUpperCase();
-  let rows = state.latestRows;
-  if (q) rows = rows.filter((r) => matchesSearch(r.symbol, q));
   const key = state.sortKey;
   const dir = state.sortDir;
-  return [...rows].sort((a, b) => {
+  return [...state.latestRows].sort((a, b) => {
     const av = a[key], bv = b[key];
     if (typeof av === "string") return av.localeCompare(bv) * dir;
     return ((av ?? -Infinity) - (bv ?? -Infinity)) * dir;
@@ -277,12 +290,6 @@ function renderTicker() {
 $("ticker").addEventListener("click", (e) => {
   const item = e.target.closest(".ticker-item");
   if (item) openDetail(item.dataset.sym);
-});
-
-$("boardSearch").addEventListener("input", (e) => {
-  state.search = e.target.value;
-  renderBoard();
-  if (e.target.value.trim()) setBoardCollapsed(false);
 });
 
 document.querySelectorAll("#boardTable thead th").forEach((th) => {
@@ -391,6 +398,7 @@ async function openDetail(symbol) {
   resetLoadable("dividendLoadBtn", "dividendResult", "Load dividends ▾");
 
   $("detailSymbol").textContent = symbol;
+  $("detailName").textContent = state.companyNames.get(symbol) || "";
   $("detailLtp").textContent = `Rs ${fmtNum(row.ltp, 1)}`;
   const chg = $("detailChg");
   chg.textContent = fmtPct(row.diffPct);

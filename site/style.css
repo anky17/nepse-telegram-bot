@@ -177,18 +177,47 @@ a { color: var(--cyan); }
 }
 .about-link:hover { color: var(--cyan); border-color: var(--cyan); }
 
+/* ---------- data freshness note ---------- */
+.data-note {
+  text-align: center;
+  font-size: 11px;
+  letter-spacing: .5px;
+  color: var(--text-dim);
+  padding: 2px 0;
+}
+
 /* ---------- boot ---------- */
 .boot {
   padding: 60px 20px;
   text-align: center;
   color: var(--text-dim);
-  letter-spacing: 2px;
-  font-size: 13px;
 }
 
-.boot-cursor { color: var(--green); animation: blink 1s step-start infinite; margin-right: 6px; }
+.boot-spinner {
+  position: relative;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
 
-@keyframes blink { 50% { opacity: 0; } }
+.boot-spinner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid var(--border);
+  border-top-color: var(--green);
+  animation: boot-spin 0.9s linear infinite;
+}
+
+@keyframes boot-spin { to { transform: rotate(360deg); } }
+
+.boot-logo { color: var(--green); filter: drop-shadow(0 0 6px rgba(61, 220, 132, 0.5)); }
+
+.boot-text { margin-top: 14px; letter-spacing: 2px; font-size: 13px; }
 
 .dots::after {
   content: "";
@@ -218,10 +247,17 @@ section {
 
 .pulse-mood { display: flex; align-items: center; gap: 10px; min-width: 180px; }
 
-.mood-icon { font-size: 20px; }
-.mood-icon.bull { color: var(--green); text-shadow: 0 0 10px rgba(61,220,132,.6); }
-.mood-icon.bear { color: var(--red); text-shadow: 0 0 10px rgba(255,92,92,.6); }
-.mood-icon.mixed { color: var(--amber); text-shadow: 0 0 10px rgba(255,184,77,.6); }
+.mood-gauge { flex-shrink: 0; overflow: visible; }
+.gauge-band { fill: none; stroke-width: 10; stroke-linecap: round; opacity: .55; }
+.gauge-band.bear { stroke: var(--red); }
+.gauge-band.mixed { stroke: var(--amber); }
+.gauge-band.bull { stroke: var(--green); }
+.gauge-needle { transform-origin: 60px 62px; transform: rotate(-90deg); transition: transform .6s ease; }
+.gauge-needle line { stroke: var(--text); stroke-width: 3; stroke-linecap: round; }
+.gauge-needle circle { fill: var(--text); }
+.mood-gauge.bull .gauge-needle line, .mood-gauge.bull .gauge-needle circle { stroke: var(--green); fill: var(--green); }
+.mood-gauge.bear .gauge-needle line, .mood-gauge.bear .gauge-needle circle { stroke: var(--red); fill: var(--red); }
+.mood-gauge.mixed .gauge-needle line, .mood-gauge.mixed .gauge-needle circle { stroke: var(--amber); fill: var(--amber); }
 
 .mood-label { font-weight: 700; font-size: 15px; letter-spacing: 1px; }
 .mood-date { color: var(--text-dim); font-size: 11px; }
@@ -293,18 +329,6 @@ section {
 /* ---------- board ---------- */
 .board-head { display: flex; align-items: center; gap: 12px; padding: 14px 16px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
 .board-title { font-size: 11px; letter-spacing: 2px; color: var(--text-dim); font-weight: 700; }
-.board-search {
-  flex: 1;
-  max-width: 240px;
-  background: var(--bg-raised);
-  border: 1px solid var(--border);
-  color: var(--text);
-  padding: 6px 10px;
-  border-radius: 4px;
-  font-family: var(--mono);
-  font-size: 12px;
-}
-.board-search:focus { outline: none; border-color: var(--cyan); }
 .board-count { margin-left: auto; color: var(--text-dimmer); font-size: 11px; }
 
 .export-btn {
@@ -363,7 +387,9 @@ section {
 .detail-close:hover { color: var(--text); border-color: var(--text-dim); }
 
 .detail-head { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; padding-right: 96px; }
+.detail-symbol-wrap { display: flex; flex-direction: column; gap: 2px; }
 .detail-symbol { font-size: 22px; font-weight: 700; letter-spacing: 1px; }
+.detail-name { font-size: 12px; font-weight: 400; color: var(--text-dim); }
 .detail-price { display: flex; align-items: baseline; gap: 10px; font-size: 18px; }
 .detail-chg { font-size: 13px; }
 
@@ -564,10 +590,12 @@ section {
   .topbar-right { gap: 10px; font-size: 10px; }
   .archive-stat { display: none; }
   .quick-search { max-width: none; order: 3; flex-basis: 100%; }
+  /* iOS Safari auto-zooms on focus when an input's font-size is under 16px,
+     and won't zoom back out on blur — keep these at 16px on mobile. */
+  .quick-search-input { font-size: 16px; }
 
   .board-table th:nth-child(6), .board-table td:nth-child(6),
   .board-table th:nth-child(7), .board-table td:nth-child(7) { display: none; }
-  .board-search { max-width: none; flex: 1 1 100%; }
   .board-count { flex-basis: 100%; margin-left: 0; }
 
   .detail { padding: 16px 14px; }
