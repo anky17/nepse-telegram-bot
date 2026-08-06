@@ -1,4 +1,7 @@
-const API = "https://omitnomis.github.io/ShareSansarScraper/api/";
+// Proxied through the Worker (worker/index.js `/data/*`), which caches every
+// successful upstream response in KV and serves the last-known-good copy if
+// the upstream (omitnomis.github.io/ShareSansarScraper) deploy is ever broken.
+const API = "https://nepse-telegram-bot.ankitdev.workers.dev/data/";
 const FLOORSHEET_BASE = "https://raw.githubusercontent.com/SamirWagle/Nepse-All-Scraper/main/data/floorsheet";
 const DIVIDEND_BASE = "https://raw.githubusercontent.com/SamirWagle/Nepse-All-Scraper/main/data/company-wise";
 

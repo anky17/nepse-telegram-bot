@@ -1,8 +1,24 @@
 const DIV = "─────────────────";
 const URL_RE = /https?:\/\/[^\s]+|t\.me\/[^\s]+/i;
 
+// ── Upstream data cache (resilience for site/app.js) ───────────────
+// The website's market data comes from a third-party scraper
+// (omitnomis.github.io/ShareSansarScraper) whose GitHub Pages deploy
+// occasionally fails/times out. This proxy caches every successful
+// upstream response in KV and falls back to the last-known-good copy
+// whenever upstream errors or returns invalid JSON — so a broken
+// upstream deploy no longer breaks the site, and it self-heals the
+// moment upstream recovers.
+const UPSTREAM_BASE = "https://omitnomis.github.io/ShareSansarScraper/api/";
+const CACHE_PREFIX = "datacache_";
+
 export default {
   async fetch(request, env) {
+    const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname.startsWith("/data/")) {
+      return handleDataProxy(env, url.pathname.slice("/data/".length));
+    }
+
     if (request.method !== "POST") return new Response("NEPSE Bot is alive.");
 
     let body;
@@ -373,6 +389,36 @@ export default {
     }
   },
 };
+
+// ── Data proxy/cache (GET /data/<path>) ─────────────────────────────
+async function handleDataProxy(env, path) {
+  if (!path || path.includes("..")) return new Response("Not Found", { status: 404 });
+
+  const cacheKey = CACHE_PREFIX + path;
+  const cors = {
+    "Access-Control-Allow-Origin": "*",
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+  };
+
+  try {
+    const res = await fetch(UPSTREAM_BASE + path, { cf: { cacheTtl: 0 } });
+    if (!res.ok) throw new Error(`upstream ${res.status}`);
+    const text = await res.text();
+    JSON.parse(text); // validate before trusting/caching it
+    await env.NEPSE_KV.put(cacheKey, text, { expirationTtl: 60 * 60 * 24 * 14 });
+    return new Response(text, { headers: cors });
+  } catch {
+    const cached = await env.NEPSE_KV.get(cacheKey);
+    if (cached) {
+      return new Response(cached, { headers: { ...cors, "X-Data-Source": "cache-fallback" } });
+    }
+    return new Response(JSON.stringify({ error: "upstream unavailable" }), {
+      status: 502,
+      headers: cors,
+    });
+  }
+}
 
 // ── GitHub Actions dispatcher ─────────────────────────────────────
 async function dispatchWorkflow(env, workflow, inputs) {
