@@ -161,6 +161,13 @@ a { color: var(--cyan); }
 
 .topbar-right { display: flex; align-items: center; gap: 18px; font-size: 12px; flex-shrink: 0; margin-left: auto; }
 
+.index-badge { display: flex; align-items: baseline; gap: 6px; }
+.index-label { color: var(--text-dim); letter-spacing: 1px; font-size: 10px; }
+.index-value { color: var(--text); font-weight: 700; }
+.index-chg { font-size: 11px; }
+.index-chg.up { color: var(--green); }
+.index-chg.down { color: var(--red); }
+
 .clock { color: var(--amber); letter-spacing: 1px; }
 
 .archive-stat { color: var(--text-dim); }
@@ -465,6 +472,13 @@ section {
 .broker-section { margin-top: 22px; padding-top: 16px; border-top: 1px solid var(--border-soft); }
 
 .broker-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+
+.board-title-group { display: inline-flex; align-items: center; gap: 8px; }
+
+.premium-badge {
+  font-size: 9px; letter-spacing: 1px; padding: 2px 7px; border-radius: 3px;
+  border: 1px solid var(--amber); color: var(--amber); font-weight: 700;
+}
 
 .broker-load-btn {
   background: var(--bg-raised);

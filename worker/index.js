@@ -15,6 +15,9 @@ const CACHE_PREFIX = "datacache_";
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    if (request.method === "GET" && url.pathname === "/data/index.json") {
+      return handleIndexData(env);
+    }
     if (request.method === "GET" && url.pathname.startsWith("/data/")) {
       return handleDataProxy(env, url.pathname.slice("/data/".length));
     }
@@ -389,6 +392,22 @@ export default {
     }
   },
 };
+
+// ── Live NEPSE index snapshot (GET /data/index.json) ────────────────
+// Written by scripts/nepse_bot.py and scripts/market_open.py directly
+// into KV — no upstream fetch here, KV is the source of truth.
+async function handleIndexData(env) {
+  const cors = {
+    "Access-Control-Allow-Origin": "*",
+    "Content-Type": "application/json",
+    "Cache-Control": "no-store",
+  };
+  const raw = await env.NEPSE_KV.get("site_index");
+  if (!raw) {
+    return new Response(JSON.stringify({ error: "index unavailable" }), { status: 502, headers: cors });
+  }
+  return new Response(raw, { headers: cors });
+}
 
 // ── Data proxy/cache (GET /data/<path>) ─────────────────────────────
 async function handleDataProxy(env, path) {

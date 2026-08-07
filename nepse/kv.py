@@ -44,6 +44,18 @@ def put_json(key: str, value):
     put(key, json.dumps(value))
 
 
+def put_index_snapshot(current, change, pct, high, low, date_str, updated_at):
+    put_json("site_index", {
+        "current": current,
+        "change": change,
+        "pct": pct,
+        "high": high,
+        "low": low,
+        "date": date_str,
+        "updatedAt": updated_at,
+    })
+
+
 def delete(key: str):
     if not _ACCOUNT:
         return

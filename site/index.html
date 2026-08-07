@@ -24,6 +24,11 @@
       <div class="quick-search-results hidden" id="quickSearchResults"></div>
     </div>
     <div class="topbar-right">
+      <div class="index-badge hidden" id="indexBadge">
+        <span class="index-label">NEPSE</span>
+        <span class="index-value" id="indexValue">—</span>
+        <span class="index-chg" id="indexChg">—</span>
+      </div>
       <div class="clock" id="clock">--:--:-- NPT</div>
       <div class="archive-stat" id="archiveStat">syncing feed…</div>
       <button class="about-link" id="aboutOpen">ⓘ About</button>
@@ -93,7 +98,7 @@
 
     <div class="broker-section">
       <div class="broker-head">
-        <span class="board-title">5-DAY BROKER TREND</span>
+        <span class="board-title-group"><span class="board-title">5-DAY BROKER TREND</span><span class="premium-badge">★ PREMIUM</span></span>
         <button class="broker-load-btn" id="trendLoadBtn">Load trend (~15MB) ▾</button>
       </div>
       <div class="broker-result hidden" id="trendResult"></div>
@@ -101,7 +106,7 @@
 
     <div class="broker-section">
       <div class="broker-head">
-        <span class="board-title">DIVIDEND HISTORY</span>
+        <span class="board-title-group"><span class="board-title">DIVIDEND HISTORY</span><span class="premium-badge">★ PREMIUM</span></span>
         <button class="broker-load-btn" id="dividendLoadBtn">Load dividends ▾</button>
       </div>
       <div class="broker-result hidden" id="dividendResult"></div>

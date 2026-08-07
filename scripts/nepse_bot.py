@@ -4,7 +4,7 @@ from datetime import datetime
 from nepse_scraper import NepseScraper
 from nepse.common import get_scraper, DIV, NST, fval, ival, tag
 from nepse.telegram import send
-from nepse.kv import get as kv_get, get_json as kv_get_json, put_json as kv_put_json
+from nepse.kv import get as kv_get, get_json as kv_get_json, put_json as kv_put_json, put_index_snapshot
 
 
 # ── KV loaders ────────────────────────────────────────────────────
@@ -177,45 +177,39 @@ def build_portfolio_section(today_prices: list[dict]) -> str:
 
 # ── Standard market sections ──────────────────────────────────────
 
-def build_index_section(scraper: NepseScraper, today_prices: list[dict]) -> str:
-    try:
-        indices = scraper.get_nepse_index()
-        main = next((i for i in indices if i.get("id") == 58), None)
-        if not main:
-            return f"📊 <b>NEPSE Index</b>\n{DIV}\n⚠️ No data"
-        current = fval(main, "currentValue")
-        change = fval(main, "change")
-        pct = fval(main, "perChange")
-        high = fval(main, "high")
-        low = fval(main, "low")
-        icon = "🟢" if change >= 0 else "🔴"
+def build_index_section(main_idx: dict | None, today_prices: list[dict]) -> str:
+    if not main_idx:
+        return f"📊 <b>NEPSE Index</b>\n{DIV}\n⚠️ No data"
+    current = fval(main_idx, "currentValue")
+    change = fval(main_idx, "change")
+    pct = fval(main_idx, "perChange")
+    high = fval(main_idx, "high")
+    low = fval(main_idx, "low")
+    icon = "🟢" if change >= 0 else "🔴"
 
-        gainers = sum(1 for s in today_prices if fval(s, "percentageChange", "perChange") > 0)
-        losers  = sum(1 for s in today_prices if fval(s, "percentageChange", "perChange") < 0)
-        total   = len(today_prices)
-        if total > 0 and gainers + losers > 0:
-            bull_ratio = gainers / (gainers + losers)
-            if bull_ratio >= 0.65:
-                sentiment, sent_icon = "Broadly Bullish", "🟢"
-            elif bull_ratio >= 0.45:
-                sentiment, sent_icon = "Mixed", "🟡"
-            else:
-                sentiment, sent_icon = "Broadly Bearish", "🔴"
-            breadth_line = f"  {sent_icon} Market Mood: <b>{sentiment}</b>   {gainers} up · {losers} down · {total - gainers - losers} flat"
+    gainers = sum(1 for s in today_prices if fval(s, "percentageChange", "perChange") > 0)
+    losers  = sum(1 for s in today_prices if fval(s, "percentageChange", "perChange") < 0)
+    total   = len(today_prices)
+    if total > 0 and gainers + losers > 0:
+        bull_ratio = gainers / (gainers + losers)
+        if bull_ratio >= 0.65:
+            sentiment, sent_icon = "Broadly Bullish", "🟢"
+        elif bull_ratio >= 0.45:
+            sentiment, sent_icon = "Mixed", "🟡"
         else:
-            breadth_line = ""
+            sentiment, sent_icon = "Broadly Bearish", "🔴"
+        breadth_line = f"  {sent_icon} Market Mood: <b>{sentiment}</b>   {gainers} up · {losers} down · {total - gainers - losers} flat"
+    else:
+        breadth_line = ""
 
-        lines = [
-            "📊 <b>NEPSE Index</b>", DIV,
-            f"{icon}  <b>{current:,.2f}</b>   {tag(change)} pts  ({tag(pct)}%)",
-            f"  H: {high:,.2f}   L: {low:,.2f}",
-        ]
-        if breadth_line:
-            lines.append(breadth_line)
-        return "\n".join(lines)
-    except Exception as e:
-        print(f"[WARN] Index error: {e}")
-        return f"📊 <b>NEPSE Index</b>\n{DIV}\n⚠️ Unavailable"
+    lines = [
+        "📊 <b>NEPSE Index</b>", DIV,
+        f"{icon}  <b>{current:,.2f}</b>   {tag(change)} pts  ({tag(pct)}%)",
+        f"  H: {high:,.2f}   L: {low:,.2f}",
+    ]
+    if breadth_line:
+        lines.append(breadth_line)
+    return "\n".join(lines)
 
 
 def build_summary_section(scraper: NepseScraper) -> str:
@@ -308,10 +302,28 @@ def main():
     if today_prices:
         check_alerts_and_circuits(today_prices)
 
+    try:
+        indices = scraper.get_nepse_index()
+        main_idx = next((i for i in indices if i.get("id") == 58), None)
+    except Exception as e:
+        print(f"[WARN] Index fetch error: {e}")
+        main_idx = None
+
+    if main_idx:
+        put_index_snapshot(
+            current=fval(main_idx, "currentValue"),
+            change=fval(main_idx, "change"),
+            pct=fval(main_idx, "perChange"),
+            high=fval(main_idx, "high"),
+            low=fval(main_idx, "low"),
+            date_str=now_nst.strftime("%Y-%m-%d"),
+            updated_at=now_nst.isoformat(),
+        )
+
     sections = [
         "📈 <b>NEPSE Market Update</b>",
         f"<i>{time_str}</i>",
-        build_index_section(scraper, today_prices),
+        build_index_section(main_idx, today_prices),
         build_summary_section(scraper),
         build_gainers_losers_section(scraper),
         build_volume_spikes_section(scraper, today_prices),

@@ -75,6 +75,23 @@ function clockTick() {
 setInterval(clockTick, 1000);
 clockTick();
 
+async function loadIndex() {
+  try {
+    const idx = await fetchJSON("index.json");
+    if (idx.error) throw new Error(idx.error);
+    const cls = idx.change >= 0 ? "up" : "down";
+    const arrow = idx.change >= 0 ? "▲" : "▼";
+    $("indexValue").textContent = fmtNum(idx.current);
+    const chgEl = $("indexChg");
+    chgEl.textContent = `${arrow} ${fmtNum(Math.abs(idx.change))} (${fmtPct(idx.pct)})`;
+    chgEl.className = `index-chg ${cls}`;
+    $("indexBadge").classList.remove("hidden");
+  } catch (err) {
+    console.error("index fetch failed", err);
+  }
+}
+loadIndex();
+
 async function fetchJSON(path) {
   const r = await fetch(API + path, { cache: "no-store" });
   if (!r.ok) throw new Error(`${path} -> ${r.status}`);

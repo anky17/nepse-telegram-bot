@@ -2,11 +2,13 @@
 from datetime import datetime
 from nepse.common import get_scraper, DIV, NST
 from nepse.telegram import send
+from nepse.kv import put_index_snapshot
 
 
 def main():
     scraper = get_scraper()
-    date_str = datetime.now(NST).strftime("%a, %d %b %Y")
+    now_nst = datetime.now(NST)
+    date_str = now_nst.strftime("%a, %d %b %Y")
 
     try:
         indices = scraper.get_nepse_index()
@@ -15,9 +17,15 @@ def main():
         current = float(idx.get("currentValue") or 0)
         change = float(idx.get("change") or 0)
         pct = float(idx.get("perChange") or 0)
+        high = float(idx.get("high") or 0)
+        low = float(idx.get("low") or 0)
         icon = "🟢" if change >= 0 else "🔴"
         sign = "+" if change >= 0 else ""
         index_line = f"{icon} <b>{current:,.2f}</b>  ({sign}{pct:.2f}%)  prev close {prev:,.2f}"
+        put_index_snapshot(
+            current=current, change=change, pct=pct, high=high, low=low,
+            date_str=now_nst.strftime("%Y-%m-%d"), updated_at=now_nst.isoformat(),
+        )
     except Exception:
         index_line = "⚠️ Index unavailable"
 
