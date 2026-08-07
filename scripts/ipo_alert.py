@@ -25,7 +25,11 @@ def main():
 
     for notice in notices:
         notice_id = str(notice.get("id") or notice.get("noticeId") or "")
-        title = (notice.get("title") or notice.get("subject") or notice.get("description") or "").lower()
+        raw_title = (
+            notice.get("title") or notice.get("subject") or
+            notice.get("noticeHeading") or notice.get("description") or ""
+        )
+        title = raw_title.lower()
 
         if not notice_id or notice_id in seen:
             continue
@@ -42,7 +46,7 @@ def main():
 
     lines = [f"📢 <b>New IPO / Rights Notice</b> ({len(new_notices)})", DIV]
     for notice in new_notices:
-        title = notice.get("title") or notice.get("subject") or "Untitled"
+        title = notice.get("title") or notice.get("subject") or notice.get("noticeHeading") or "Untitled"
         lines.append(f"  • {title}")
 
     lines += ["", "Check <b>Mero Share</b> or <b>NEPSE website</b> for full details."]

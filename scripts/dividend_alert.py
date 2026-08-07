@@ -35,6 +35,7 @@ def main():
 
     seen: dict = {} if PRINT_MODE else get_json("dividend_seen", {})
     new_dividends = []
+    all_rows = []  # every company's latest dividend record, regardless of "new" status
 
     with ThreadPoolExecutor(max_workers=20) as executor:
         futures = {executor.submit(fetch_latest_dividend, sym): sym for sym in symbols}
@@ -45,9 +46,32 @@ def main():
             fiscal_year = row.get("fiscal_year", "").strip()
             if not fiscal_year:
                 continue
+            all_rows.append((symbol, row))
             if seen.get(symbol) != fiscal_year:
                 new_dividends.append((symbol, row))
                 seen[symbol] = fiscal_year
+
+    if all_rows and not PRINT_MODE:
+        # "[Closed]" marks a book closure that has already passed — a "proposed"
+        # dividend on the site should only show ones still pending.
+        upcoming = [
+            (symbol, row) for symbol, row in all_rows
+            if "[Closed]" not in (row.get("book_closure_date", "") or "")
+        ]
+
+        def closure_key(item):
+            return item[1].get("book_closure_date", "") or ""
+        site_items = []
+        for symbol, row in sorted(upcoming, key=closure_key)[:40]:
+            site_items.append({
+                "symbol": symbol,
+                "bonus": row.get("bonus_share", "").strip(),
+                "cash": row.get("cash_dividend", "").strip(),
+                "total": row.get("total_dividend", "").strip(),
+                "closure": row.get("book_closure_date", "").strip(),
+                "fiscalYear": row.get("fiscal_year", "").strip(),
+            })
+        put_json("site_dividends", {"items": site_items})
 
     if not new_dividends:
         print("No new dividends found.")

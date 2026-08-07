@@ -5,6 +5,14 @@ const API = "https://nepse-telegram-bot.ankitdev.workers.dev/data/";
 const FLOORSHEET_BASE = "https://raw.githubusercontent.com/SamirWagle/Nepse-All-Scraper/main/data/floorsheet";
 const DIVIDEND_BASE = "https://raw.githubusercontent.com/SamirWagle/Nepse-All-Scraper/main/data/company-wise";
 
+// Independently-fetched widgets (index badge, sector strip, notices, etc.)
+// render as soon as their own data arrives, but shouldn't pop into view
+// ahead of the main boot spinner — that reads as a broken, half-loaded page.
+// They await this before revealing themselves, so everything appears in one
+// consistent moment once boot() finishes, no matter which fetch wins the race.
+let resolveBootDone;
+const bootDone = new Promise((resolve) => { resolveBootDone = resolve; });
+
 const state = {
   latestRows: [],       // this session's rows, keyed lookup below
   rowsBySymbol: new Map(),
@@ -17,6 +25,10 @@ const state = {
   companyNames: new Map(), // symbol -> full company name
   watchlist: loadWatchlist(),
   indicators: { sma20: false, sma50: false, rsi: false },
+  boardFilter: "all",   // all | near-high | near-low
+  sectorMap: null,      // symbol -> sector name
+  sectorPerf: [],        // [{name, pct}] today's sector performance
+  bullRatio: 0,
 };
 
 function loadWatchlist() {
@@ -81,16 +93,179 @@ async function loadIndex() {
     if (idx.error) throw new Error(idx.error);
     const cls = idx.change >= 0 ? "up" : "down";
     const arrow = idx.change >= 0 ? "▲" : "▼";
+    const chgText = `${arrow} ${fmtNum(Math.abs(idx.change))} (${fmtPct(idx.pct)})`;
+
     $("indexValue").textContent = fmtNum(idx.current);
     const chgEl = $("indexChg");
-    chgEl.textContent = `${arrow} ${fmtNum(Math.abs(idx.change))} (${fmtPct(idx.pct)})`;
+    chgEl.textContent = chgText;
     chgEl.className = `index-chg ${cls}`;
+    await bootDone;
     $("indexBadge").classList.remove("hidden");
+
+    $("heroIndexValue").textContent = fmtNum(idx.current);
+    const heroChgEl = $("heroIndexChg");
+    heroChgEl.textContent = chgText;
+    heroChgEl.className = `index-hero-chg ${cls}`;
+    $("heroIndexRange").textContent = `H: ${fmtNum(idx.high)}   L: ${fmtNum(idx.low)}`;
   } catch (err) {
     console.error("index fetch failed", err);
   }
 }
 loadIndex();
+
+async function loadIndexIntraday() {
+  try {
+    const data = await fetchJSON("index-intraday.json");
+    if (data.error) throw new Error(data.error);
+    const points = (data.points || []).filter((p) => typeof p[1] === "number");
+    if (points.length < 2) return;
+
+    const w = 300, h = 90;
+    const values = points.map((p) => p[1]);
+    const min = Math.min(...values), max = Math.max(...values);
+    const span = max - min || 1;
+    const stepX = w / (points.length - 1);
+    const coords = values.map((v, i) => [i * stepX, h - ((v - min) / span) * h]);
+    const linePath = coords.map(([x, y], i) => `${i === 0 ? "M" : "L"}${x.toFixed(1)},${y.toFixed(1)}`).join(" ");
+    const fillPath = `${linePath} L${w},${h} L0,${h} Z`;
+    const cls = values[values.length - 1] >= values[0] ? "up" : "down";
+
+    const svg = $("indexHeroChart");
+    svg.innerHTML =
+      `<path class="spark-fill ${cls}" d="${fillPath}"></path>` +
+      `<path class="spark-line ${cls}" d="${linePath}"></path>` +
+      `<line class="spark-guide hidden" id="sparkGuide" x1="0" y1="0" x2="0" y2="${h}"></line>` +
+      `<circle class="spark-dot ${cls} hidden" id="sparkDot" r="3"></circle>`;
+    svg.classList.remove("hidden");
+
+    heroChart = { points, coords, w, h, cls };
+    attachHeroChartCrosshair();
+  } catch (err) {
+    console.error("index intraday fetch failed", err);
+  }
+}
+loadIndexIntraday();
+
+let heroChart = null;
+
+function attachHeroChartCrosshair() {
+  const svg = $("indexHeroChart");
+  const tooltip = $("indexHeroTooltip");
+  const guide = $("sparkGuide");
+  const dot = $("sparkDot");
+
+  svg.onmousemove = (e) => {
+    if (!heroChart) return;
+    const rect = svg.getBoundingClientRect();
+    const ratio = (e.clientX - rect.left) / rect.width;
+    const i = Math.max(0, Math.min(heroChart.points.length - 1, Math.round(ratio * (heroChart.points.length - 1))));
+    const [x, y] = heroChart.coords[i];
+    const [ts, val] = heroChart.points[i];
+
+    guide.setAttribute("x1", x); guide.setAttribute("x2", x);
+    guide.classList.remove("hidden");
+    dot.setAttribute("cx", x); dot.setAttribute("cy", y);
+    dot.classList.remove("hidden");
+
+    const time = new Date(ts * 1000).toLocaleTimeString("en-US", {
+      timeZone: "Asia/Kathmandu", hour: "2-digit", minute: "2-digit",
+    });
+    tooltip.innerHTML = `<span class="th-time">${time}</span><span class="th-val">${fmtNum(val)}</span>`;
+    tooltip.style.left = `${(x / heroChart.w) * rect.width}px`;
+    tooltip.classList.remove("hidden");
+  };
+  svg.onmouseleave = () => {
+    guide.classList.add("hidden");
+    dot.classList.add("hidden");
+    tooltip.classList.add("hidden");
+  };
+}
+
+async function loadSectors() {
+  try {
+    const data = await fetchJSON("sectors.json");
+    if (data.error) throw new Error(data.error);
+    state.sectorPerf = data.sectors || [];
+    const row = $("sectorStripRow");
+    row.innerHTML = state.sectorPerf.map((s) => {
+      const cls = s.pct >= 0 ? "up" : "down";
+      return `<span class="sector-chip"><span class="sc-name">${s.name}</span><span class="sc-pct ${cls}">${fmtPct(s.pct)}</span></span>`;
+    }).join("");
+    $("sectorStripDate").textContent = data.date || "";
+    await bootDone;
+    $("sectorStrip").classList.toggle("hidden", !state.sectorPerf.length);
+  } catch (err) {
+    console.error("sectors fetch failed", err);
+  }
+}
+loadSectors();
+
+async function loadSectorMap() {
+  try {
+    const data = await fetchJSON("sector-map.json");
+    if (data.error) throw new Error(data.error);
+    state.sectorMap = data;
+    if (state.currentSymbol) renderSectorTag(state.currentSymbol);
+  } catch (err) {
+    console.error("sector map fetch failed", err);
+  }
+}
+loadSectorMap();
+
+async function loadCircuits() {
+  try {
+    const data = await fetchJSON("circuits.json");
+    if (data.error) throw new Error(data.error);
+    const items = data.items || [];
+    if (!items.length) return;
+    const row = $("circuitStripRow");
+    row.innerHTML = items.map((c) => {
+      const arrow = c.direction === "up" ? "▲" : "▼";
+      return `<span class="circuit-chip ${c.direction}">${arrow} <b>${c.symbol}</b> ${fmtPct(c.pct)} <span class="cc-time">${c.time || ""}</span></span>`;
+    }).join("");
+    await bootDone;
+    $("circuitStrip").classList.remove("hidden");
+  } catch (err) {
+    console.error("circuits fetch failed", err);
+  }
+}
+loadCircuits();
+
+async function loadNotices() {
+  try {
+    const data = await fetchJSON("notices.json");
+    if (data.error) throw new Error(data.error);
+    const items = data.items || [];
+    if (!items.length) return;
+    const list = $("noticesList");
+    list.innerHTML = items.map((n) => `
+      <li class="notices-item ${n.important ? "important" : ""}">
+        ${n.important ? `<span class="ni-tag">KEY</span>` : ""}
+        <span class="ni-title">${n.title}</span>
+      </li>`).join("");
+    $("noticesToggle").classList.toggle("hidden", items.length <= 3);
+    await bootDone;
+    $("noticesSection").classList.remove("hidden");
+  } catch (err) {
+    console.error("notices fetch failed", err);
+  }
+}
+loadNotices();
+
+$("noticesToggle").addEventListener("click", () => {
+  const list = $("noticesList");
+  const collapsed = list.classList.toggle("collapsed");
+  $("noticesToggle").textContent = collapsed ? "Show all ▾" : "Show fewer ▴";
+});
+
+$("pulseTabs").addEventListener("click", (e) => {
+  const btn = e.target.closest(".pulse-tab");
+  if (!btn) return;
+  const view = btn.dataset.view;
+  $("pulseTabs").querySelectorAll(".pulse-tab").forEach((b) => b.classList.toggle("active", b === btn));
+  $("chartView").classList.toggle("hidden", view !== "chart");
+  $("pulseMood").classList.toggle("hidden", view !== "meter");
+});
 
 async function fetchJSON(path) {
   const r = await fetch(API + path, { cache: "no-store" });
@@ -135,6 +310,7 @@ async function boot() {
 
     renderPulse(recap);
     renderMovers();
+    renderMostActive();
     renderBoard();
     renderWatchlist();
     renderTicker();
@@ -145,6 +321,9 @@ async function boot() {
     $("pulse").classList.remove("hidden");
     $("movers").classList.remove("hidden");
     $("board").classList.remove("hidden");
+    $("bulkSection").classList.remove("hidden");
+    animateMoodNeedle(state.bullRatio);
+    resolveBootDone();
 
     const hashSym = location.hash.replace("#", "").toUpperCase();
     if (hashSym && state.rowsBySymbol.has(hashSym)) openDetail(hashSym);
@@ -153,7 +332,50 @@ async function boot() {
     await waitOutMinBoot();
     $("boot").classList.add("hidden");
     $("feedError").classList.remove("hidden");
+    resolveBootDone();
   }
+}
+
+// Gauge arc geometry: center (60,62) r=46, sweeping the top semicircle from
+// f=0 (leftmost, angle 180°) to f=1 (rightmost, angle 0°) through the top
+// (f=0.5, angle 90°). Mirrors the fixed radius used by the static SVG paths.
+function arcPoint(f, r) {
+  const rad = (180 - f * 180) * Math.PI / 180;
+  return [60 + r * Math.cos(rad), 62 - r * Math.sin(rad)];
+}
+
+function gaugeArcPath(f0, f1) {
+  const [x0, y0] = arcPoint(f0, 46);
+  const [x1, y1] = arcPoint(f1, 46);
+  const largeArc = (f1 - f0) > 0.5 ? 1 : 0;
+  return `M${x0.toFixed(2)},${y0.toFixed(2)} A46,46 0 ${largeArc} 1 ${x1.toFixed(2)},${y1.toFixed(2)}`;
+}
+
+// Sets the needle/fill-arc to their resting (most-bearish/empty) state with
+// transitions disabled, so a later animateMoodNeedle() call always has a real
+// "before" frame to sweep from — setting a target value while #pulse is still
+// display:none (as it is during boot()) paints instantly with no animation.
+function resetMoodNeedle() {
+  const needle = $("moodNeedle");
+  needle.style.transition = "none";
+  needle.style.transform = "rotate(-90deg)";
+  const fill = $("gaugeFill");
+  fill.style.transition = "none";
+  fill.setAttribute("d", gaugeArcPath(0, 0));
+}
+
+function animateMoodNeedle(bullRatio) {
+  const needle = $("moodNeedle");
+  const fill = $("gaugeFill");
+  void needle.getBoundingClientRect(); // force the resting frame to commit
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      needle.style.transition = "";
+      needle.style.transform = `rotate(${bullRatio * 180 - 90}deg)`;
+      fill.style.transition = "";
+      fill.setAttribute("d", gaugeArcPath(0, bullRatio));
+    });
+  });
 }
 
 function renderPulse(recap) {
@@ -170,7 +392,11 @@ function renderPulse(recap) {
 
   $("moodGauge").classList.remove("bull", "mixed", "bear");
   $("moodGauge").classList.add(cls);
-  $("moodNeedle").style.transform = `rotate(${bullRatio * 180 - 90}deg)`;
+  $("pulseMood").classList.remove("bull", "mixed", "bear");
+  $("pulseMood").classList.add(cls);
+  resetMoodNeedle();
+  state.bullRatio = bullRatio;
+  $("moodScore").textContent = Math.round(bullRatio * 100);
   $("moodLabel").textContent = mood;
   $("pulseDate").textContent = recap.date || "—";
 
@@ -214,16 +440,48 @@ function renderMovers() {
   byChange.slice(-8).reverse().forEach((l) => lBody.appendChild(moverRow(l)));
 }
 
+function activeRow(item) {
+  const tr = document.createElement("tr");
+  const pctClass = item.diffPct >= 0 ? "up" : "down";
+  tr.innerHTML = `
+    <td class="sym">${item.symbol}</td>
+    <td class="ltp">Rs ${fmtCompact(item.turnover)}</td>
+    <td class="pct ${pctClass}">${fmtPct(item.diffPct)}</td>`;
+  tr.querySelector(".sym").addEventListener("click", () => openDetail(item.symbol));
+  return tr;
+}
+
+function renderMostActive() {
+  const body = $("activeTable").querySelector("tbody");
+  body.innerHTML = "";
+  const byTurnover = [...state.latestRows].sort((a, b) => (b.turnover || 0) - (a.turnover || 0));
+  byTurnover.slice(0, 8).forEach((r) => body.appendChild(activeRow(r)));
+  $("mostActive").classList.toggle("hidden", byTurnover.length === 0);
+}
+
 function matchesSearch(symbol, q) {
   if (symbol.includes(q)) return true;
   const name = state.companyNames.get(symbol);
   return !!name && name.toUpperCase().includes(q);
 }
 
+// "Near" a 52-week bound = within 3% of it — same threshold used by most screeners.
+const NEAR_52W_PCT = 0.03;
+
+function passesBoardFilter(row) {
+  if (state.boardFilter === "near-high") {
+    return row.high52 > 0 && row.ltp >= row.high52 * (1 - NEAR_52W_PCT);
+  }
+  if (state.boardFilter === "near-low") {
+    return row.low52 > 0 && row.ltp <= row.low52 * (1 + NEAR_52W_PCT);
+  }
+  return true;
+}
+
 function sortedFilteredRows() {
   const key = state.sortKey;
   const dir = state.sortDir;
-  return [...state.latestRows].sort((a, b) => {
+  return state.latestRows.filter(passesBoardFilter).sort((a, b) => {
     const av = a[key], bv = b[key];
     if (typeof av === "string") return av.localeCompare(bv) * dir;
     return ((av ?? -Infinity) - (bv ?? -Infinity)) * dir;
@@ -330,6 +588,14 @@ $("boardToggle").addEventListener("click", () => {
   setBoardCollapsed(!$("boardScroll").classList.contains("collapsed"));
 });
 
+$("boardFilters").addEventListener("click", (e) => {
+  const btn = e.target.closest(".filter-chip");
+  if (!btn) return;
+  state.boardFilter = btn.dataset.filter;
+  $("boardFilters").querySelectorAll(".filter-chip").forEach((c) => c.classList.toggle("active", c === btn));
+  renderBoard();
+});
+
 // ---------- quick search (jump to a share) ----------
 
 function renderQuickSearchResults(query) {
@@ -364,11 +630,27 @@ function closeQuickSearch() {
 
 $("quickSearch").addEventListener("input", (e) => renderQuickSearchResults(e.target.value));
 
+function moveQuickSearchSelection(delta) {
+  const items = [...$("quickSearchResults").querySelectorAll(".qs-item")];
+  if (!items.length) return;
+  const idx = items.findIndex((it) => it.classList.contains("active"));
+  items.forEach((it) => it.classList.remove("active"));
+  const next = idx < 0 ? (delta > 0 ? 0 : items.length - 1) : (idx + delta + items.length) % items.length;
+  items[next].classList.add("active");
+  items[next].scrollIntoView({ block: "nearest" });
+}
+
 $("quickSearch").addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    const first = $("quickSearchResults").querySelector(".qs-item");
-    if (first) {
-      openDetail(first.dataset.sym);
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    moveQuickSearchSelection(1);
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    moveQuickSearchSelection(-1);
+  } else if (e.key === "Enter") {
+    const target = $("quickSearchResults").querySelector(".qs-item.active") || $("quickSearchResults").querySelector(".qs-item");
+    if (target) {
+      openDetail(target.dataset.sym);
       closeQuickSearch();
       e.target.blur();
     }
@@ -413,9 +695,9 @@ async function openDetail(symbol) {
   location.hash = symbol;
   state.currentSymbol = symbol;
 
-  resetLoadable("brokerLoadBtn", "brokerResult", "Load floorsheet ▾");
   resetLoadable("trendLoadBtn", "trendResult", "Load trend (~15MB) ▾");
-  resetLoadable("dividendLoadBtn", "dividendResult", "Load dividends ▾");
+  loadBrokerPositions(symbol);
+  loadDividendHistory(symbol);
 
   $("detailSymbol").textContent = symbol;
   $("detailName").textContent = state.companyNames.get(symbol) || "";
@@ -424,6 +706,8 @@ async function openDetail(symbol) {
   chg.textContent = fmtPct(row.diffPct);
   chg.className = `detail-chg ${row.diffPct >= 0 ? "up" : "down"}`;
   updateDetailStar();
+  renderSectorTag(symbol);
+  renderW52Bar(row);
 
   $("detailGrid").innerHTML = [
     ["Open", fmtNum(row.open, 1)],
@@ -452,6 +736,115 @@ $("detailClose").addEventListener("click", () => {
   $("detail").classList.add("hidden");
   history.replaceState(null, "", location.pathname + location.search);
 });
+
+function renderSectorTag(symbol) {
+  const el = $("detailSectorTag");
+  const sector = state.sectorMap?.[symbol];
+  if (!sector) { el.classList.add("hidden"); return; }
+  const perf = state.sectorPerf?.find((s) => s.name === sector);
+  el.textContent = perf ? `${sector} · ${fmtPct(perf.pct)} today` : sector;
+  el.classList.remove("hidden");
+}
+
+function renderW52Bar(row) {
+  const wrap = $("w52BarWrap");
+  if (!(row.high52 > row.low52)) { wrap.classList.add("hidden"); return; }
+  const pct = Math.max(0, Math.min(100, ((row.ltp - row.low52) / (row.high52 - row.low52)) * 100));
+  $("w52BarFill").style.width = `${pct}%`;
+  $("w52BarMarker").style.left = `${pct}%`;
+  $("w52BarPctLabel").textContent = `${pct.toFixed(0)}% of range`;
+  $("w52BarLowLabel").textContent = `${fmtNum(row.low52, 1)} Low`;
+  $("w52BarHighLabel").textContent = `${fmtNum(row.high52, 1)} High`;
+  wrap.classList.remove("hidden");
+}
+
+// Ports the signal scoring from scripts/stock_info.py's build_sentiment() — same
+// logic, condensed for on-page display instead of a Telegram message.
+function computeVerdict(row, hist) {
+  const cols = hist.cols || [];
+  const cIdx = cols.indexOf("c") >= 0 ? cols.indexOf("c") : cols.indexOf("ltp");
+  const vIdx = cols.indexOf("vol");
+  const rows = hist.rows || [];
+  if (cIdx < 0 || rows.length < 15) return null;
+
+  const closes = rows.map((r) => Number(r[cIdx]));
+  const lastValid = (arr) => { for (let i = arr.length - 1; i >= 0; i--) if (arr[i] !== null) return arr[i]; return null; };
+  const sma20 = lastValid(sma(closes, 20));
+  const sma50 = lastValid(sma(closes, 50));
+  const sma200 = closes.length >= 200 ? lastValid(sma(closes, 200)) : null;
+  const rsiVal = lastValid(rsi(closes, 14));
+
+  let volRatio = null;
+  if (vIdx >= 0) {
+    const lastVol = Number(rows[rows.length - 1][vIdx]) || 0;
+    const lookback = rows.slice(-31, -1);
+    if (lookback.length) {
+      const avg = lookback.reduce((s, r) => s + (Number(r[vIdx]) || 0), 0) / lookback.length;
+      if (avg > 0) volRatio = lastVol / avg;
+    }
+  }
+
+  const ltp = row.ltp, dayPct = row.diffPct;
+  const w52Pct = row.high52 > row.low52 ? ((ltp - row.low52) / (row.high52 - row.low52)) * 100 : null;
+
+  let score = 0;
+  const signals = []; // [isPositive, text]
+
+  if (sma20 !== null) {
+    const up = ltp > sma20;
+    score += up ? 1 : -1;
+    signals.push([up, `Price is ${up ? "above" : "below"} its 20-day average — ${up ? "short-term uptrend" : "short-term downtrend"}`]);
+  }
+  if (sma50 !== null) {
+    const up = ltp > sma50;
+    score += up ? 1 : -1;
+    signals.push([up, `Price is ${up ? "above" : "below"} its 50-day average — ${up ? "medium-term uptrend" : "medium-term downtrend"}`]);
+  }
+  if (sma200 !== null) {
+    const up = ltp > sma200;
+    score += up ? 1 : -1;
+    signals.push([up, `Price is ${up ? "above" : "below"} its 200-day average — ${up ? "long-term uptrend" : "long-term downtrend"}`]);
+    if (sma50 !== null) {
+      const golden = sma50 > sma200;
+      score += golden ? 1 : -1;
+      signals.push([golden, golden ? "50-day above 200-day — golden cross (bullish)" : "50-day below 200-day — death cross (bearish)"]);
+    }
+  }
+  if (rsiVal !== null) {
+    if (rsiVal >= 70) { score -= 1; signals.push([false, `RSI ${rsiVal.toFixed(0)} — overbought, may cool off`]); }
+    else if (rsiVal <= 30) { score += 1; signals.push([true, `RSI ${rsiVal.toFixed(0)} — oversold, may bounce`]); }
+    else if (rsiVal >= 55) { score += 1; signals.push([true, `RSI ${rsiVal.toFixed(0)} — strong momentum`]); }
+    else if (rsiVal <= 45) { score -= 1; signals.push([false, `RSI ${rsiVal.toFixed(0)} — weak momentum`]); }
+  }
+  if (volRatio !== null && volRatio >= 2.0) {
+    const pos = dayPct >= 0;
+    score += pos ? 1 : -1;
+    signals.push([pos, `Volume ${volRatio.toFixed(1)}x normal — ${pos ? "strong buying interest" : "heavy selling pressure"}`]);
+  }
+  if (w52Pct !== null) {
+    if (w52Pct >= 80) signals.push([null, "Near 52-week high — strong run, watch for a pullback"]);
+    else if (w52Pct <= 20) signals.push([null, "Near 52-week low — possible opportunity or continued weakness"]);
+  }
+
+  let verdict, cls, text;
+  if (score >= 2) { verdict = "✅ WATCH"; cls = "watch"; text = "More signals positive than negative."; }
+  else if (score >= 0) { verdict = "⚠️ CAUTION"; cls = "caution"; text = "Mixed signals — wait for confirmation."; }
+  else { verdict = "❌ AVOID"; cls = "avoid"; text = "More signals negative than positive."; }
+
+  const reasons = signals.filter(([pos]) => pos === null || pos === (score >= 0)).slice(0, 3).map(([, t]) => t);
+  return { verdict, cls, text, reasons };
+}
+
+function renderVerdict(row, hist) {
+  const card = $("verdictCard");
+  const result = computeVerdict(row, hist);
+  if (!result) { card.classList.add("hidden"); return; }
+  card.className = `verdict-card ${result.cls}`;
+  $("detailVerdict").textContent = result.verdict;
+  $("detailVerdictText").textContent = result.text;
+  $("detailVerdictReasons").innerHTML = result.reasons.map((r) => `<li>${r}</li>`).join("");
+  card.classList.remove("hidden");
+}
 
 function updateDetailStar() {
   const btn = $("detailStar");
@@ -496,6 +889,8 @@ async function loadHistoryAndDraw(symbol) {
   state.currentHistory = hist;
   drawChart(hist);
   updateVolAvgStat(hist);
+  const row = state.rowsBySymbol.get(symbol);
+  if (row) renderVerdict(row, hist);
 }
 
 function updateVolAvgStat(hist) {
@@ -789,10 +1184,17 @@ function parseFloorsheetCSV(text) {
   const buyerIdx = headers.indexOf("buyer");
   const sellerIdx = headers.indexOf("seller");
   const qtyIdx = headers.indexOf("quantity");
+  const rateIdx = headers.indexOf("rate");
   const rows = [];
   for (let i = 1; i < lines.length; i++) {
     const v = splitCSVLine(lines[i]);
-    rows.push({ symbol: (v[symIdx] || "").trim().toUpperCase(), buyer: (v[buyerIdx] || "").trim(), seller: (v[sellerIdx] || "").trim(), qty: parseFloat(v[qtyIdx]) || 0 });
+    rows.push({
+      symbol: (v[symIdx] || "").trim().toUpperCase(),
+      buyer: (v[buyerIdx] || "").trim(),
+      seller: (v[sellerIdx] || "").trim(),
+      qty: parseFloat(v[qtyIdx]) || 0,
+      rate: rateIdx >= 0 ? parseFloat(v[rateIdx]) || 0 : 0,
+    });
   }
   return rows;
 }
@@ -916,9 +1318,7 @@ async function fetchDividends(symbol) {
   });
 }
 
-$("dividendLoadBtn").addEventListener("click", async () => {
-  const symbol = state.currentSymbol;
-  if (!symbol) return;
+async function loadDividendHistory(symbol) {
   const btn = $("dividendLoadBtn");
   btn.disabled = true;
   btn.textContent = "Loading…";
@@ -948,6 +1348,10 @@ $("dividendLoadBtn").addEventListener("click", async () => {
   } finally {
     btn.disabled = false;
   }
+}
+
+$("dividendLoadBtn").addEventListener("click", () => {
+  if (state.currentSymbol) loadDividendHistory(state.currentSymbol);
 });
 
 // ---------- CSV export ----------
@@ -1074,9 +1478,7 @@ function renderBrokerResult(symbol, date, result) {
   `;
 }
 
-$("brokerLoadBtn").addEventListener("click", async () => {
-  const symbol = state.currentSymbol;
-  if (!symbol) return;
+async function loadBrokerPositions(symbol) {
   const btn = $("brokerLoadBtn");
   btn.disabled = true;
   btn.textContent = "Loading floorsheet…";
@@ -1095,6 +1497,83 @@ $("brokerLoadBtn").addEventListener("click", async () => {
   } finally {
     btn.disabled = false;
   }
+}
+
+$("brokerLoadBtn").addEventListener("click", () => {
+  if (state.currentSymbol) loadBrokerPositions(state.currentSymbol);
+});
+
+// ---------- bulk transactions (market-wide largest trades, on demand) ----------
+
+$("bulkLoadBtn").addEventListener("click", async () => {
+  const btn = $("bulkLoadBtn");
+  btn.disabled = true;
+  btn.textContent = "Loading floorsheet…";
+  try {
+    const fs = await fetchLatestFloorsheet();
+    const result = $("bulkResult");
+    if (!fs) {
+      result.classList.remove("hidden");
+      result.innerHTML = `<div class="broker-empty">Floorsheet unavailable right now — try again later.</div>`;
+      btn.textContent = "Load bulk trades (~15MB) ▾";
+      return;
+    }
+    const top = [...fs.rows].sort((a, b) => b.qty - a.qty).slice(0, 20);
+    result.innerHTML = `
+      <div class="broker-meta">${fs.date} · largest trades by quantity</div>
+      <table class="board-table">
+        <thead><tr><th>Symbol</th><th>Buyer</th><th>Seller</th><th class="num">Quantity</th><th class="num">Price</th></tr></thead>
+        <tbody>
+          ${top.map((r) => `
+            <tr>
+              <td class="sym-cell">${r.symbol}</td>
+              <td>${r.buyer}</td>
+              <td>${r.seller}</td>
+              <td class="num">${Math.round(r.qty).toLocaleString("en-US")}</td>
+              <td class="num">${fmtNum(r.rate, 2)}</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>`;
+    result.classList.remove("hidden");
+    btn.textContent = "Reload bulk trades ▾";
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$("bulkResult").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr");
+  const sym = tr?.querySelector(".sym-cell")?.textContent;
+  if (sym && state.rowsBySymbol.has(sym)) openDetail(sym);
+});
+
+async function loadDividends() {
+  try {
+    const data = await fetchJSON("dividends.json");
+    if (data.error) throw new Error(data.error);
+    const items = data.items || [];
+    if (!items.length) return;
+    $("dividendsBody").innerHTML = items.map((d) => `
+      <tr>
+        <td class="sym-cell">${d.symbol}</td>
+        <td class="num">${d.bonus || "—"}</td>
+        <td class="num">${d.cash || "—"}</td>
+        <td class="num">${d.total || "—"}</td>
+        <td>${d.closure || "—"}</td>
+        <td>${d.fiscalYear || "—"}</td>
+      </tr>`).join("");
+    await bootDone;
+    $("dividendsSection").classList.remove("hidden");
+  } catch (err) {
+    console.error("dividends fetch failed", err);
+  }
+}
+loadDividends();
+
+$("dividendsBody").addEventListener("click", (e) => {
+  const tr = e.target.closest("tr");
+  const sym = tr?.querySelector(".sym-cell")?.textContent;
+  if (sym && state.rowsBySymbol.has(sym)) openDetail(sym);
 });
 
 boot();

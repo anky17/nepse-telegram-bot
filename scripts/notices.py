@@ -41,6 +41,19 @@ def is_important(title: str) -> bool:
     return any(kw in t for kw in IMPORTANT_KEYWORDS)
 
 
+def extract_id(notice: dict) -> str:
+    return str(notice.get("id") or notice.get("noticeId") or notice.get("notice_id") or "")
+
+
+def extract_title(notice: dict) -> str:
+    # "noticeHeading" is what NEPSE's own notice_api actually uses; the others
+    # cover Nepse-All-Scraper's differently-shaped pre-aggregated notices.
+    return (
+        notice.get("title") or notice.get("subject") or notice.get("notice_title") or
+        notice.get("noticeHeading") or notice.get("description") or notice.get("noticeBody") or ""
+    ).strip()
+
+
 def main():
     scraper = get_scraper()
     seen: dict = kv_get_json("seen_notices_v2", {})
@@ -53,12 +66,22 @@ def main():
         print("No notices available from any source.")
         return
 
+    site_items = []
     for notice in notices:
-        notice_id = str(notice.get("id") or notice.get("noticeId") or notice.get("notice_id") or "")
-        title = (
-            notice.get("title") or notice.get("subject") or
-            notice.get("description") or notice.get("notice_title") or ""
-        ).strip()
+        title = extract_title(notice)
+        notice_id = extract_id(notice)
+        if not title:
+            continue
+        site_items.append({"id": notice_id, "title": title, "important": is_important(title)})
+    site_items.sort(key=lambda n: not n["important"])
+    kv_put_json("site_notices", {
+        "date": datetime.now(NST).strftime("%Y-%m-%d"),
+        "items": site_items[:15],
+    })
+
+    for notice in notices:
+        notice_id = extract_id(notice)
+        title = extract_title(notice)
 
         if not notice_id or not title:
             continue

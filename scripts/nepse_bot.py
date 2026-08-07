@@ -2,7 +2,7 @@ import os
 import sys
 from datetime import datetime
 from nepse_scraper import NepseScraper
-from nepse.common import get_scraper, DIV, NST, fval, ival, tag
+from nepse.common import get_scraper, DIV, NST, fval, ival, tag, compute_sector_avg
 from nepse.telegram import send
 from nepse.kv import get as kv_get, get_json as kv_get_json, put_json as kv_put_json, put_index_snapshot
 
@@ -27,7 +27,7 @@ def load_portfolio() -> dict:
 
 # ── Alert & circuit breaker checks ───────────────────────────────
 
-def check_alerts_and_circuits(today_prices: list[dict]) -> None:
+def check_alerts_and_circuits(today_prices: list[dict], now_nst) -> None:
     price_map = {s.get("symbol"): s for s in today_prices if s.get("symbol")}
 
     alerts = load_alerts()
@@ -59,6 +59,7 @@ def check_alerts_and_circuits(today_prices: list[dict]) -> None:
 
     alerted_today = kv_get_json("alerted_circuits", {})
     new_circuits = []
+    new_hits = []
 
     for stock in today_prices:
         sym = stock.get("symbol")
@@ -86,10 +87,25 @@ def check_alerts_and_circuits(today_prices: list[dict]) -> None:
             )
             alerted_today[sym] = True
             new_circuits.append(sym)
+            new_hits.append({
+                "symbol": sym,
+                "direction": "up" if hit_top else "down",
+                "pct": pct,
+                "ltp": ltp,
+                "time": now_nst.strftime("%I:%M %p"),
+            })
 
     if new_circuits:
         kv_put_json("alerted_circuits", alerted_today)
         print(f"Circuit breakers fired: {new_circuits}")
+
+    if new_hits:
+        today_str = now_nst.strftime("%Y-%m-%d")
+        state = kv_get_json("site_circuits", {})
+        if state.get("date") != today_str:
+            state = {"date": today_str, "items": []}
+        state["items"] = state.get("items", []) + new_hits
+        kv_put_json("site_circuits", state)
 
 
 # ── Volume spikes ─────────────────────────────────────────────────
@@ -300,7 +316,7 @@ def main():
         print(f"[WARN] get_today_price failed: {e}")
 
     if today_prices:
-        check_alerts_and_circuits(today_prices)
+        check_alerts_and_circuits(today_prices, now_nst)
 
     try:
         indices = scraper.get_nepse_index()
@@ -319,6 +335,32 @@ def main():
             date_str=now_nst.strftime("%Y-%m-%d"),
             updated_at=now_nst.isoformat(),
         )
+
+    if today_prices:
+        try:
+            securities = scraper.get_all_securities()
+            sector_avg = compute_sector_avg(securities, today_prices)
+            if sector_avg:
+                kv_put_json("site_sectors", {
+                    "date": now_nst.strftime("%Y-%m-%d"),
+                    "updatedAt": now_nst.isoformat(),
+                    "sectors": [
+                        {"name": k, "pct": v}
+                        for k, v in sorted(sector_avg.items(), key=lambda kv: -kv[1])
+                    ],
+                })
+        except Exception as e:
+            print(f"[WARN] Sector KV write error: {e}")
+
+    try:
+        live = scraper.get_live_indices()
+        if live:
+            kv_put_json("site_index_intraday", {
+                "date": now_nst.strftime("%Y-%m-%d"),
+                "points": live,
+            })
+    except Exception as e:
+        print(f"[WARN] Intraday KV write error: {e}")
 
     sections = [
         "📈 <b>NEPSE Market Update</b>",

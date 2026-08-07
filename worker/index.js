@@ -12,14 +12,25 @@ const URL_RE = /https?:\/\/[^\s]+|t\.me\/[^\s]+/i;
 const UPSTREAM_BASE = "https://omitnomis.github.io/ShareSansarScraper/api/";
 const CACHE_PREFIX = "datacache_";
 
+// ── Site-own data written directly to KV by the Python scripts ──────
+// (not proxied from upstream — KV is the source of truth for these)
+const KV_JSON_ROUTES = {
+  "index.json": "site_index",
+  "index-intraday.json": "site_index_intraday",
+  "sectors.json": "site_sectors",
+  "sector-map.json": "site_sector_map",
+  "circuits.json": "site_circuits",
+  "notices.json": "site_notices",
+  "dividends.json": "site_dividends",
+};
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
-    if (request.method === "GET" && url.pathname === "/data/index.json") {
-      return handleIndexData(env);
-    }
     if (request.method === "GET" && url.pathname.startsWith("/data/")) {
-      return handleDataProxy(env, url.pathname.slice("/data/".length));
+      const sub = url.pathname.slice("/data/".length);
+      if (KV_JSON_ROUTES[sub]) return handleKvJson(env, KV_JSON_ROUTES[sub]);
+      return handleDataProxy(env, sub);
     }
 
     if (request.method !== "POST") return new Response("NEPSE Bot is alive.");
@@ -393,18 +404,16 @@ export default {
   },
 };
 
-// ── Live NEPSE index snapshot (GET /data/index.json) ────────────────
-// Written by scripts/nepse_bot.py and scripts/market_open.py directly
-// into KV — no upstream fetch here, KV is the source of truth.
-async function handleIndexData(env) {
+// ── Site-own JSON straight from KV (GET /data/<route> above) ────────
+async function handleKvJson(env, kvKey) {
   const cors = {
     "Access-Control-Allow-Origin": "*",
     "Content-Type": "application/json",
     "Cache-Control": "no-store",
   };
-  const raw = await env.NEPSE_KV.get("site_index");
+  const raw = await env.NEPSE_KV.get(kvKey);
   if (!raw) {
-    return new Response(JSON.stringify({ error: "index unavailable" }), { status: 502, headers: cors });
+    return new Response(JSON.stringify({ error: `${kvKey} unavailable` }), { status: 502, headers: cors });
   }
   return new Response(raw, { headers: cors });
 }

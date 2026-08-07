@@ -20,7 +20,7 @@
       </div>
     </div>
     <div class="quick-search" id="quickSearchWrap">
-      <input class="quick-search-input" id="quickSearch" type="text" placeholder="Jump to a share… (press /)" autocomplete="off">
+      <input class="quick-search-input" id="quickSearch" type="text" placeholder="Enter symbol or name… (press /)" autocomplete="off">
       <div class="quick-search-results hidden" id="quickSearchResults"></div>
     </div>
     <div class="topbar-right">
@@ -55,6 +55,7 @@
       <div class="detail-symbol-wrap">
         <div class="detail-symbol" id="detailSymbol">—</div>
         <div class="detail-name" id="detailName"></div>
+        <span class="sector-tag hidden" id="detailSectorTag"></span>
       </div>
       <div class="detail-price">
         <span id="detailLtp">—</span>
@@ -62,7 +63,27 @@
       </div>
     </div>
     <button class="detail-star" id="detailStar">☆ Add to Watchlist</button>
+
+    <div class="verdict-card hidden" id="verdictCard">
+      <span class="verdict-badge" id="detailVerdict">—</span>
+      <span class="verdict-text" id="detailVerdictText"></span>
+      <ul class="verdict-reasons" id="detailVerdictReasons"></ul>
+    </div>
+
     <div class="detail-grid" id="detailGrid"></div>
+
+    <div class="w52-bar-wrap hidden" id="w52BarWrap">
+      <div class="w52-bar-top">
+        <span class="plabel">52-WEEK RANGE</span>
+        <span class="pval" id="w52BarPctLabel"></span>
+      </div>
+      <div class="w52-bar"><div class="w52-bar-fill" id="w52BarFill"></div><div class="w52-bar-marker" id="w52BarMarker"></div></div>
+      <div class="w52-bar-labels">
+        <span id="w52BarLowLabel"></span>
+        <span id="w52BarHighLabel"></span>
+      </div>
+    </div>
+
     <div class="chart-controls">
       <div class="range-picker" id="rangePicker">
         <button data-range="30">1M</button>
@@ -113,23 +134,53 @@
     </div>
   </section>
 
+  <div class="dashboard-grid">
+  <div class="dashboard-col">
   <section class="pulse hidden" id="pulse">
-    <div class="pulse-mood" id="pulseMood">
-      <svg class="mood-gauge" id="moodGauge" viewBox="0 0 120 70" width="72" height="42" aria-hidden="true">
-        <path class="gauge-band bear" d="M14,62 A46,46 0 0 1 52.81,16.57"></path>
-        <path class="gauge-band mixed" d="M52.81,16.57 A46,46 0 0 1 80.88,21.01"></path>
-        <path class="gauge-band bull" d="M80.88,21.01 A46,46 0 0 1 106,62"></path>
-        <g class="gauge-needle" id="moodNeedle">
-          <line x1="60" y1="62" x2="60" y2="24"></line>
-          <circle cx="60" cy="62" r="4"></circle>
-        </g>
-      </svg>
-      <div>
-        <div class="mood-label" id="moodLabel">—</div>
-        <div class="mood-date" id="pulseDate">—</div>
-      </div>
-      <span class="stale-badge hidden" id="staleBadge">last session</span>
+    <div class="index-hero" id="indexHero">
+      <div class="index-hero-label">NEPSE INDEX</div>
+      <div class="index-hero-value" id="heroIndexValue">—</div>
+      <div class="index-hero-chg" id="heroIndexChg">—</div>
+      <div class="index-hero-range" id="heroIndexRange">—</div>
     </div>
+
+    <div class="pulse-tabs" id="pulseTabs">
+      <button class="pulse-tab active" data-view="chart">Chart</button>
+      <button class="pulse-tab" data-view="meter">Mood Meter</button>
+    </div>
+
+    <div class="pulse-visual">
+      <div class="index-hero-chart-wrap" id="chartView">
+        <svg class="index-hero-chart hidden" id="indexHeroChart" viewBox="0 0 300 90" preserveAspectRatio="none"></svg>
+        <div class="index-hero-tooltip hidden" id="indexHeroTooltip"></div>
+      </div>
+      <div class="pulse-mood hidden" id="pulseMood">
+        <div class="mood-gauge-wrap">
+          <svg class="mood-gauge" id="moodGauge" viewBox="0 0 120 70" aria-hidden="true">
+            <path class="gauge-track" d="M14,62 A46,46 0 0 1 106,62"></path>
+            <path class="gauge-fill" id="gaugeFill" d=""></path>
+            <g class="gauge-ticks">
+              <line x1="19" y1="62" x2="14" y2="62"></line>
+              <line x1="31.01" y1="33.01" x2="27.47" y2="29.47"></line>
+              <line x1="60" y1="21" x2="60" y2="16"></line>
+              <line x1="88.99" y1="33.01" x2="92.53" y2="29.47"></line>
+              <line x1="101" y1="62" x2="106" y2="62"></line>
+            </g>
+            <g class="gauge-needle" id="moodNeedle">
+              <line x1="60" y1="62" x2="60" y2="24"></line>
+              <circle cx="60" cy="62" r="4"></circle>
+            </g>
+          </svg>
+        </div>
+        <div class="mood-score" id="moodScore">—</div>
+        <div class="mood-meta">
+          <div class="mood-label" id="moodLabel">—</div>
+          <div class="mood-date" id="pulseDate">—</div>
+          <span class="stale-badge hidden" id="staleBadge">last session</span>
+        </div>
+      </div>
+    </div>
+
     <div class="breadth" id="breadth">
       <div class="breadth-bar" id="breadthBar"></div>
       <div class="breadth-nums" id="breadthNums">— up · — down · — flat</div>
@@ -142,6 +193,23 @@
     </div>
   </section>
 
+  <section class="sector-strip hidden" id="sectorStrip">
+    <div class="board-head">
+      <span class="board-title">SECTOR PERFORMANCE</span>
+      <span class="board-count" id="sectorStripDate"></span>
+    </div>
+    <div class="sector-strip-row" id="sectorStripRow"></div>
+  </section>
+
+  <section class="circuit-strip hidden" id="circuitStrip">
+    <div class="board-head">
+      <span class="board-title">⚡ CIRCUIT BREAKERS TODAY</span>
+    </div>
+    <div class="circuit-strip-row" id="circuitStripRow"></div>
+  </section>
+  </div>
+
+  <div class="dashboard-col">
   <section class="movers hidden" id="movers">
     <div class="mover-col">
       <div class="mover-head gain">▲ TOP GAINERS</div>
@@ -153,6 +221,17 @@
     </div>
   </section>
 
+  <section class="most-active hidden" id="mostActive">
+    <div class="board-head">
+      <span class="board-title">⚡ MOST ACTIVE — BY TURNOVER</span>
+    </div>
+    <div class="mostactive-body">
+      <table class="mover-table" id="activeTable"><tbody></tbody></table>
+    </div>
+  </section>
+  </div>
+  </div>
+
   <section class="watchlist hidden" id="watchlistSection">
     <div class="board-head">
       <span class="board-title">★ WATCHLIST</span>
@@ -163,6 +242,11 @@
   <section class="board hidden" id="board">
     <div class="board-head">
       <span class="board-title">MARKET BOARD</span>
+      <div class="board-filters" id="boardFilters">
+        <button class="filter-chip active" data-filter="all">All</button>
+        <button class="filter-chip" data-filter="near-high">Near 52W High</button>
+        <button class="filter-chip" data-filter="near-low">Near 52W Low</button>
+      </div>
       <span class="board-count" id="boardCount"></span>
       <button class="export-btn" id="boardExportBtn">Export CSV</button>
       <button class="board-toggle" id="boardToggle">Hide ▴</button>
@@ -183,6 +267,46 @@
         <tbody id="boardBody"></tbody>
       </table>
     </div>
+  </section>
+
+  <div class="reference-zone">
+
+    <section class="dividends-section hidden" id="dividendsSection">
+      <div class="board-head">
+        <span class="board-title">💰 PROPOSED DIVIDENDS</span>
+      </div>
+      <div class="board-scroll">
+        <table class="board-table" id="dividendsTable">
+          <thead>
+            <tr>
+              <th>Symbol</th>
+              <th class="num">Bonus %</th>
+              <th class="num">Cash %</th>
+              <th class="num">Total %</th>
+              <th>Book Closure</th>
+              <th>FY</th>
+            </tr>
+          </thead>
+          <tbody id="dividendsBody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="bulk-section hidden" id="bulkSection">
+      <div class="broker-head">
+        <span class="board-title">🔷 BULK TRANSACTIONS</span>
+        <button class="broker-load-btn" id="bulkLoadBtn">Load bulk trades (~15MB) ▾</button>
+      </div>
+      <div class="broker-result hidden" id="bulkResult"></div>
+    </section>
+  </div>
+
+  <section class="notices-section hidden" id="noticesSection">
+    <div class="board-head">
+      <span class="board-title">📢 MARKET NOTICES</span>
+      <button class="board-toggle" id="noticesToggle">Show all ▾</button>
+    </div>
+    <ul class="notices-list collapsed" id="noticesList"></ul>
   </section>
 
   <div class="about-overlay hidden" id="aboutOverlay">
