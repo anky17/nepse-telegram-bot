@@ -709,7 +709,19 @@ async function openDetail(symbol) {
   renderSectorTag(symbol);
   renderW52Bar(row);
 
-  $("detailGrid").innerHTML = [
+  $("detailGrid").innerHTML = buildDetailGridHTML(row);
+
+  const detailEl = $("detail");
+  const topbar = document.querySelector(".topbar");
+  detailEl.style.scrollMarginTop = `${topbar.offsetHeight + 10}px`;
+  detailEl.classList.remove("hidden");
+  detailEl.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  await loadHistoryAndDraw(symbol);
+}
+
+function buildDetailGridHTML(row) {
+  return [
     ["Open", fmtNum(row.open, 1)],
     ["High", fmtNum(row.high, 1)],
     ["Low", fmtNum(row.low, 1)],
@@ -722,14 +734,23 @@ async function openDetail(symbol) {
     ["52W Low", fmtNum(row.low52, 1)],
   ].map(([label, val]) => `<div class="dstat"><span class="plabel">${label}</span><span class="pval">${val}</span></div>`).join("")
     + `<div class="dstat"><span class="plabel">Vol vs 30D Avg</span><span class="pval" id="volAvgStat">—</span></div>`;
+}
 
-  const detailEl = $("detail");
-  const topbar = document.querySelector(".topbar");
-  detailEl.style.scrollMarginTop = `${topbar.offsetHeight + 10}px`;
-  detailEl.classList.remove("hidden");
-  detailEl.scrollIntoView({ behavior: "smooth", block: "start" });
-
-  await loadHistoryAndDraw(symbol);
+// Called after a live board refresh to keep an already-open detail panel current
+// without touching scroll position, the chart, or the trend/dividend panels.
+function refreshOpenDetail() {
+  const symbol = state.currentSymbol;
+  if (!symbol || $("detail").classList.contains("hidden")) return;
+  const row = state.rowsBySymbol.get(symbol);
+  if (!row) return;
+  $("detailLtp").textContent = `Rs ${fmtNum(row.ltp, 1)}`;
+  const chg = $("detailChg");
+  chg.textContent = fmtPct(row.diffPct);
+  chg.className = `detail-chg ${row.diffPct >= 0 ? "up" : "down"}`;
+  renderW52Bar(row);
+  $("detailGrid").innerHTML = buildDetailGridHTML(row);
+  if (state.currentHistory) updateVolAvgStat(state.currentHistory);
+  renderSectorTag(symbol);
 }
 
 $("detailClose").addEventListener("click", () => {
@@ -1577,3 +1598,79 @@ $("dividendsBody").addEventListener("click", (e) => {
 });
 
 boot();
+
+// ---------- auto-refresh ----------
+// Telegram gets pushed a fresh message every 30 min; the site instead pulls,
+// so it needs to poll on its own to feel the same. index/sectors/circuits/
+// notices are written by the bot's 30-min GH Actions run, so they change
+// intra-day; the board (latest.json/recap) is EOD-only upstream, but polling
+// it here means a page left open picks up the day's close automatically
+// instead of requiring a manual reload.
+
+const AUTO_REFRESH_MS = 60 * 1000;
+let refreshInFlight = false;
+
+// Matches the bot's own active window (9 AM pre-market prep through ~9 PM,
+// once EOD/dividend/notice jobs have all landed) — no point polling at 3 AM.
+function isPollWindow() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kathmandu",
+    weekday: "short",
+    hour: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date());
+  const weekday = parts.find((p) => p.type === "weekday").value;
+  const hour = Number(parts.find((p) => p.type === "hour").value);
+  if (weekday === "Sat" || weekday === "Sun") return false;
+  return hour >= 9 && hour < 21;
+}
+
+async function refreshBoard() {
+  try {
+    const [meta, recap, latest] = await Promise.all([
+      fetchJSON("meta.json"),
+      fetchJSON("recap/latest.json"),
+      fetchJSON("latest.json"),
+    ]);
+    $("archiveStat").textContent = `${meta.tradingDays} sessions archived since ${meta.firstDate}`;
+
+    state.latestRows = latest.rows || [];
+    state.rowsBySymbol = new Map(state.latestRows.map((r) => [r.symbol, r]));
+
+    renderPulse(recap);
+    animateMoodNeedle(state.bullRatio);
+    renderMovers();
+    renderMostActive();
+    renderBoard();
+    renderWatchlist();
+    renderTicker();
+    refreshOpenDetail();
+  } catch (err) {
+    console.error("board refresh failed", err);
+  }
+}
+
+async function refreshLiveData() {
+  if (refreshInFlight || document.hidden || !isPollWindow()) return;
+  refreshInFlight = true;
+  try {
+    await Promise.all([
+      loadIndex(),
+      loadIndexIntraday(),
+      loadSectors(),
+      loadCircuits(),
+      loadNotices(),
+      refreshBoard(),
+    ]);
+  } finally {
+    refreshInFlight = false;
+  }
+}
+
+setInterval(refreshLiveData, AUTO_REFRESH_MS);
+// Tab was backgrounded (or the laptop slept) — catch up the moment it's visible again.
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) refreshLiveData();
+});
+
+bootDone.then(() => $("liveIndicator").classList.remove("hidden"));
