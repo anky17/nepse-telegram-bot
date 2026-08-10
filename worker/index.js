@@ -400,9 +400,43 @@ export default {
         "📊 Full open summary with index & sector outlook arriving shortly.",
         "💡 Use /check anytime for live data during market hours.",
       ].join("\n"));
+      return;
     }
+    // Every other tick — freshness watchdog. GitHub Actions' own scheduler
+    // occasionally delays or drops nepse_bot.yml's 30-min runs under load;
+    // this re-dispatches it if site_index has gone stale, so the site (which
+    // polls this same KV data) is never left showing a frozen index for long.
+    await watchdogFreshness(env);
   },
 };
+
+// ── Freshness watchdog ───────────────────────────────────────────────
+// bot runs every 30 min during market hours; treat >20 min of silence as a
+// missed run. Cooldown avoids re-dispatching every 10-min tick while a
+// delayed GH Actions run is still queued up from the previous dispatch.
+const STALE_MS = 20 * 60 * 1000;
+const REDISPATCH_COOLDOWN_MS = 12 * 60 * 1000;
+
+async function watchdogFreshness(env) {
+  if (!isMarketOpen()) return;
+
+  const raw = await env.NEPSE_KV.get("site_index");
+  if (!raw) return;
+  let snapshot;
+  try {
+    snapshot = JSON.parse(raw);
+  } catch {
+    return;
+  }
+  const updatedAt = new Date(snapshot.updatedAt).getTime();
+  if (Number.isNaN(updatedAt) || Date.now() - updatedAt < STALE_MS) return;
+
+  const lastDispatch = Number(await env.NEPSE_KV.get("watchdog_last_dispatch") || 0);
+  if (Date.now() - lastDispatch < REDISPATCH_COOLDOWN_MS) return;
+
+  const ok = await dispatchWorkflow(env, "nepse_bot.yml", {});
+  if (ok) await env.NEPSE_KV.put("watchdog_last_dispatch", String(Date.now()));
+}
 
 // ── Site-own JSON straight from KV (GET /data/<route> above) ────────
 async function handleKvJson(env, kvKey) {

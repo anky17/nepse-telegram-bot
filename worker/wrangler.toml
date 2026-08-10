@@ -8,5 +8,6 @@ id = "a8197786d4bb4c79a1c32cd3d6d6a9bf"
 
 [triggers]
 crons = [
-  "10 5 * * 1-5",   # 10:55 AM NST — morning briefing (direct send, no GH Actions)
+  "10 5 * * 1-5",     # 10:55 AM NST — morning briefing (direct send, no GH Actions)
+  "*/10 5-9 * * 1-5", # every 10 min, ~10:45 AM–3:45 PM NST — site_index freshness watchdog
 ]
