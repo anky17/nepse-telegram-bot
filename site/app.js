@@ -83,9 +83,35 @@ function clockTick() {
     hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
   }).format(now);
   $("clock").textContent = `${npt} NPT`;
+  updateLiveIndicator();
 }
 setInterval(clockTick, 1000);
 clockTick();
+
+// NEPSE trades Mon–Fri, 11:00 AM – 3:00 PM NST — the LIVE badge should only
+// claim "live" during that window, not just whenever the page happens to be open.
+function isMarketOpen() {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Kathmandu",
+    weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false,
+  }).formatToParts(new Date());
+  const weekday = parts.find((p) => p.type === "weekday").value;
+  if (weekday === "Sat" || weekday === "Sun") return false;
+  const hour = Number(parts.find((p) => p.type === "hour").value);
+  const minute = Number(parts.find((p) => p.type === "minute").value);
+  const minutesSinceMidnight = hour * 60 + minute;
+  return minutesSinceMidnight >= 11 * 60 && minutesSinceMidnight < 15 * 60;
+}
+
+function updateLiveIndicator() {
+  const el = $("liveIndicator");
+  const open = isMarketOpen();
+  el.classList.toggle("market-closed", !open);
+  $("liveLabel").textContent = open ? "LIVE" : "CLOSED";
+  el.title = open
+    ? "This page checks for new data automatically — no need to reload"
+    : "Market is closed — prices shown are from the last session. Trading resumes 11:00 AM NST on the next trading day.";
+}
 
 async function loadIndex() {
   try {
