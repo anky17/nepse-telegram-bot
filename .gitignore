@@ -3,3 +3,5 @@ __pycache__/
 *.pyc
 worker/.wrangler/
 .wrangler/
+.claude/
+worker/.claude/
