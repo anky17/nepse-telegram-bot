@@ -87,6 +87,28 @@
       </div>
     </div>
 
+    <div class="pivot-wrap hidden" id="pivotWrap">
+      <div class="pivot-top">
+        <span class="plabel">PIVOT POINTS</span>
+        <span class="pval">today's S/R from yesterday's range</span>
+      </div>
+      <div class="pivot-row">
+        <div class="pivot-group">
+          <span class="pivot-tag res">R3</span><span id="pivotR3">—</span>
+          <span class="pivot-tag res">R2</span><span id="pivotR2">—</span>
+          <span class="pivot-tag res">R1</span><span id="pivotR1">—</span>
+        </div>
+        <div class="pivot-group pivot-pp">
+          <span class="pivot-tag pp">PP</span><span id="pivotPP">—</span>
+        </div>
+        <div class="pivot-group">
+          <span class="pivot-tag sup">S1</span><span id="pivotS1">—</span>
+          <span class="pivot-tag sup">S2</span><span id="pivotS2">—</span>
+          <span class="pivot-tag sup">S3</span><span id="pivotS3">—</span>
+        </div>
+      </div>
+    </div>
+
     <div class="chart-controls">
       <div class="range-picker" id="rangePicker">
         <button data-range="30">1M</button>
@@ -100,6 +122,7 @@
           <button data-ind="sma20">SMA 20</button>
           <button data-ind="sma50">SMA 50</button>
           <button data-ind="rsi">RSI 14</button>
+          <button data-ind="macd">MACD</button>
         </div>
         <button class="export-btn" id="historyExportBtn">Export CSV</button>
       </div>
@@ -110,6 +133,9 @@
     </div>
     <div class="rsi-wrap hidden" id="rsiWrap">
       <canvas id="rsiCanvas"></canvas>
+    </div>
+    <div class="rsi-wrap hidden" id="macdWrap">
+      <canvas id="macdCanvas"></canvas>
     </div>
 
     <div class="broker-section">

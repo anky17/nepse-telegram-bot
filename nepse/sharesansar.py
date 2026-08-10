@@ -47,3 +47,27 @@ def get_history_closes_volumes(symbol: str) -> tuple[list[float], list[float]]:
                 pass
 
     return closes, volumes
+
+
+def get_history_dated_closes(symbol: str) -> list[tuple[str, float]]:
+    """Return [(date, close), ...] oldest-first from full ShareSansar history."""
+    r = requests.get(f"{_BASE}/history/{symbol.upper()}.json", timeout=_TIMEOUT)
+    r.raise_for_status()
+    data = r.json()
+    cols = data.get("cols", [])
+    rows = data.get("rows", [])
+
+    d_idx = next((i for i, c in enumerate(cols) if c == "d"), None)
+    price_idx = next((i for i, c in enumerate(cols) if c == "ltp"), None)
+    if price_idx is None:
+        price_idx = next((i for i, c in enumerate(cols) if c == "c"), None)
+    if d_idx is None or price_idx is None:
+        return []
+
+    out = []
+    for row in rows:
+        try:
+            out.append((str(row[d_idx]), float(str(row[price_idx]).replace(",", ""))))
+        except (IndexError, TypeError, ValueError):
+            pass
+    return out

@@ -24,7 +24,7 @@ const state = {
   floorsheetByDate: new Map(), // date -> { date, rows }
   companyNames: new Map(), // symbol -> full company name
   watchlist: loadWatchlist(),
-  indicators: { sma20: false, sma50: false, rsi: false },
+  indicators: { sma20: false, sma50: false, rsi: false, macd: false },
   boardFilter: "all",   // all | near-high | near-low
   sectorMap: null,      // symbol -> sector name
   sectorPerf: [],        // [{name, pct}] today's sector performance
@@ -732,7 +732,8 @@ function buildDetailGridHTML(row) {
     ["52W High", fmtNum(row.high52, 1)],
     ["52W Low", fmtNum(row.low52, 1)],
   ].map(([label, val]) => `<div class="dstat"><span class="plabel">${label}</span><span class="pval">${val}</span></div>`).join("")
-    + `<div class="dstat"><span class="plabel">Vol vs 30D Avg</span><span class="pval" id="volAvgStat">—</span></div>`;
+    + `<div class="dstat"><span class="plabel">Vol vs 30D Avg</span><span class="pval" id="volAvgStat">—</span></div>`
+    + `<div class="dstat"><span class="plabel">1Y Return</span><span class="pval" id="ret1yStat">—</span></div>`;
 }
 
 // Called after a live board refresh to keep an already-open detail panel current
@@ -748,7 +749,10 @@ function refreshOpenDetail() {
   chg.className = `detail-chg ${row.diffPct >= 0 ? "up" : "down"}`;
   renderW52Bar(row);
   $("detailGrid").innerHTML = buildDetailGridHTML(row);
-  if (state.currentHistory) updateVolAvgStat(state.currentHistory);
+  if (state.currentHistory) {
+    updateVolAvgStat(state.currentHistory);
+    updateRet1yStat(state.currentHistory, row);
+  }
   renderSectorTag(symbol);
 }
 
@@ -892,6 +896,7 @@ document.querySelectorAll("#indicatorPicker button").forEach((btn) => {
     state.indicators[key] = !state.indicators[key];
     btn.classList.toggle("active", state.indicators[key]);
     $("rsiWrap").classList.toggle("hidden", !state.indicators.rsi);
+    $("macdWrap").classList.toggle("hidden", !state.indicators.macd);
     drawChart(state.currentHistory);
   });
 });
@@ -911,6 +916,71 @@ async function loadHistoryAndDraw(symbol) {
   updateVolAvgStat(hist);
   const row = state.rowsBySymbol.get(symbol);
   if (row) renderVerdict(row, hist);
+  renderPivots(hist);
+  updateRet1yStat(hist, row);
+}
+
+// Classic floor-trader pivot points from the most recent completed session's
+// H/L/C in the history feed (ShareSansar publishes once daily after close, so
+// its last row is "yesterday" relative to any live intraday price).
+function computePivots(hist) {
+  const cols = hist.cols || [];
+  const hIdx = cols.indexOf("h"), lIdx = cols.indexOf("l"), cIdx = cols.indexOf("c");
+  const dIdx = cols.indexOf("d");
+  const rows = hist.rows || [];
+  if (hIdx < 0 || lIdx < 0 || cIdx < 0 || !rows.length) return null;
+
+  const todayNPT = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kathmandu" }).format(new Date());
+  let prior = rows[rows.length - 1];
+  if (dIdx >= 0 && String(prior[dIdx]) === todayNPT && rows.length > 1) {
+    prior = rows[rows.length - 2];
+  }
+  const ph = Number(prior[hIdx]), pl = Number(prior[lIdx]), pc = Number(prior[cIdx]);
+  if (!(ph && pl && pc)) return null;
+
+  const pp = (ph + pl + pc) / 3;
+  const rng = ph - pl;
+  return {
+    pp, r1: 2 * pp - pl, r2: pp + rng, r3: ph + 2 * (pp - pl),
+    s1: 2 * pp - ph, s2: pp - rng, s3: pl - 2 * (ph - pp),
+  };
+}
+
+function renderPivots(hist) {
+  const wrap = $("pivotWrap");
+  const p = computePivots(hist);
+  if (!p) { wrap.classList.add("hidden"); return; }
+  $("pivotR3").textContent = fmtNum(p.r3, 1);
+  $("pivotR2").textContent = fmtNum(p.r2, 1);
+  $("pivotR1").textContent = fmtNum(p.r1, 1);
+  $("pivotPP").textContent = fmtNum(p.pp, 1);
+  $("pivotS1").textContent = fmtNum(p.s1, 1);
+  $("pivotS2").textContent = fmtNum(p.s2, 1);
+  $("pivotS3").textContent = fmtNum(p.s3, 1);
+  wrap.classList.remove("hidden");
+}
+
+function updateRet1yStat(hist, row) {
+  const el = $("ret1yStat");
+  if (!el) return;
+  const cols = hist.cols || [];
+  const dIdx = cols.indexOf("d");
+  const cIdx = cols.indexOf("c") >= 0 ? cols.indexOf("c") : cols.indexOf("ltp");
+  const rows = hist.rows || [];
+  if (!row || dIdx < 0 || cIdx < 0 || !rows.length) { el.textContent = "—"; return; }
+
+  const target = new Date();
+  target.setDate(target.getDate() - 365);
+  const targetStr = target.toISOString().slice(0, 10);
+  let yearAgoClose = null;
+  for (const r of rows) {
+    if (String(r[dIdx]) <= targetStr) yearAgoClose = Number(r[cIdx]);
+    else break;
+  }
+  if (!yearAgoClose) { el.textContent = "—"; return; }
+  const pct = ((row.ltp - yearAgoClose) / yearAgoClose) * 100;
+  el.textContent = `${pct >= 0 ? "+" : ""}${pct.toFixed(1)}%`;
+  el.className = `pval ${pct >= 0 ? "up" : "down"}`;
 }
 
 function updateVolAvgStat(hist) {
@@ -949,12 +1019,18 @@ function drawChart(hist) {
   const fullSMA20 = sma(fullCloses, 20);
   const fullSMA50 = sma(fullCloses, 50);
   const fullRSI = rsi(fullCloses, 14);
+  const fullMACD = state.indicators.macd ? macd(fullCloses) : null;
 
   const sliceStart = state.range > 0 ? Math.max(0, hist.rows.length - state.range) : 0;
   let rows = hist.rows.slice(sliceStart);
   const sma20 = fullSMA20.slice(sliceStart);
   const sma50 = fullSMA50.slice(sliceStart);
   const rsiVals = fullRSI.slice(sliceStart);
+  const macdVals = fullMACD ? {
+    macdLine: fullMACD.macdLine.slice(sliceStart),
+    signalLine: fullMACD.signalLine.slice(sliceStart),
+    hist: fullMACD.hist.slice(sliceStart),
+  } : null;
 
   const dpr = window.devicePixelRatio || 1;
   const rect = canvas.getBoundingClientRect();
@@ -1053,6 +1129,7 @@ function drawChart(hist) {
   attachCrosshair(canvas, rows, dIdx, cIdx, xAt, yAt, padL, padR, W);
 
   if (state.indicators.rsi) drawRSI(rows.length, rsiVals);
+  if (state.indicators.macd && macdVals) drawMACD(rows.length, macdVals);
 }
 
 function sma(values, period) {
@@ -1085,6 +1162,84 @@ function rsi(values, period = 14) {
     out[i] = avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss);
   }
   return out;
+}
+
+function ema(values, period) {
+  const out = new Array(values.length).fill(null);
+  if (values.length < period) return out;
+  const k = 2 / (period + 1);
+  let prev = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  out[period - 1] = prev;
+  for (let i = period; i < values.length; i++) {
+    prev = values[i] * k + prev * (1 - k);
+    out[i] = prev;
+  }
+  return out;
+}
+
+function macd(values) {
+  const ema12 = ema(values, 12);
+  const ema26 = ema(values, 26);
+  const macdLine = values.map((_, i) => (ema12[i] !== null && ema26[i] !== null) ? ema12[i] - ema26[i] : null);
+  const macdValid = macdLine.filter((v) => v !== null);
+  const signalValid = ema(macdValid, 9);
+  // Re-align the signal EMA (computed over the compacted valid-only array) back
+  // to the full, null-padded index space so it lines up with macdLine/dates.
+  const signalLine = new Array(values.length).fill(null);
+  let vi = 0;
+  for (let i = 0; i < values.length; i++) {
+    if (macdLine[i] === null) continue;
+    signalLine[i] = signalValid[vi] ?? null;
+    vi++;
+  }
+  const histLine = values.map((_, i) => (macdLine[i] !== null && signalLine[i] !== null) ? macdLine[i] - signalLine[i] : null);
+  return { macdLine, signalLine, hist: histLine };
+}
+
+function drawMACD(count, macdVals) {
+  const canvas = $("macdCanvas");
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+  const W = rect.width, H = rect.height;
+  const padL = 46, padR = 10, padT = 6, padB = 6;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  ctx.clearRect(0, 0, W, H);
+
+  const values = [...macdVals.macdLine, ...macdVals.signalLine].filter((v) => v !== null);
+  if (!values.length) return;
+  const maxAbs = Math.max(...values.map(Math.abs), 0.01);
+
+  const xAt = (i) => padL + (plotW * i) / Math.max(count - 1, 1);
+  const yAt = (v) => padT + plotH - ((v + maxAbs) / (2 * maxAbs)) * plotH;
+
+  ctx.strokeStyle = "#1a212a";
+  ctx.beginPath();
+  ctx.moveTo(padL, yAt(0));
+  ctx.lineTo(W - padR, yAt(0));
+  ctx.stroke();
+
+  const barW = Math.max(plotW / count - 1, 1);
+  macdVals.hist.forEach((v, i) => {
+    if (v === null) return;
+    const y0 = yAt(0), y1 = yAt(v);
+    ctx.fillStyle = v >= 0 ? "rgba(61,220,132,0.5)" : "rgba(255,92,92,0.5)";
+    ctx.fillRect(xAt(i) - barW / 2, Math.min(y0, y1), barW, Math.abs(y1 - y0));
+  });
+
+  drawIndicatorLine(ctx, macdVals.macdLine, xAt, yAt, "#4fd1ff");
+  drawIndicatorLine(ctx, macdVals.signalLine, xAt, yAt, "#ffb84d");
+
+  const lastValid = [...macdVals.macdLine].reverse().find((v) => v !== null);
+  if (lastValid !== undefined) {
+    ctx.fillStyle = "#6b7785";
+    ctx.font = "9px ui-monospace, monospace";
+    ctx.fillText(`MACD: ${lastValid.toFixed(1)}`, W - padR - 70, padT + 8);
+  }
 }
 
 function drawIndicatorLine(ctx, values, xAt, yAt, color) {

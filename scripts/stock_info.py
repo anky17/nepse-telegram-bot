@@ -1,9 +1,9 @@
 """Individual stock info with indicators and sentiment analysis."""
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from nepse_scraper import NepseScraper
 from nepse.common import get_scraper, DIV
-from nepse.sharesansar import get_history_closes_volumes as ss_history
+from nepse.sharesansar import get_history_closes_volumes as ss_history, get_history_dated_closes
 from nepse.telegram import send
 
 args = [a.upper() for a in sys.argv[1:] if a != "--print"]
@@ -32,6 +32,66 @@ def compute_sma(closes: list, period: int) -> float | None:
     if len(closes) < period:
         return None
     return sum(closes[-period:]) / period
+
+
+def compute_pivots(prev_high: float, prev_low: float, prev_close: float) -> dict | None:
+    """Classic floor-trader pivot points from the prior session's H/L/C."""
+    if not (prev_high and prev_low and prev_close):
+        return None
+    pp = (prev_high + prev_low + prev_close) / 3
+    rng = prev_high - prev_low
+    return {
+        "pp": pp,
+        "r1": 2 * pp - prev_low, "r2": pp + rng, "r3": prev_high + 2 * (pp - prev_low),
+        "s1": 2 * pp - prev_high, "s2": pp - rng, "s3": prev_low - 2 * (prev_high - pp),
+    }
+
+
+def _ema_series(values: list, period: int) -> list:
+    """EMA aligned 1:1 with `values`; None entries until enough data to seed."""
+    if len(values) < period:
+        return [None] * len(values)
+    k = 2 / (period + 1)
+    out = [None] * (period - 1)
+    prev = sum(values[:period]) / period
+    out.append(prev)
+    for v in values[period:]:
+        prev = v * k + prev * (1 - k)
+        out.append(prev)
+    return out
+
+
+def compute_macd(closes: list) -> dict | None:
+    """MACD(12,26,9) — line, signal, histogram, and a bullish/bearish cross flag."""
+    if len(closes) < 26 + 9:
+        return None
+    ema12 = _ema_series(closes, 12)
+    ema26 = _ema_series(closes, 26)
+    macd_line = [a - b if a is not None and b is not None else None for a, b in zip(ema12, ema26)]
+    valid = [v for v in macd_line if v is not None]
+    if len(valid) < 9:
+        return None
+    signal_line = _ema_series(valid, 9)
+    macd_val, signal_val = valid[-1], signal_line[-1]
+    prev_macd, prev_signal = valid[-2], signal_line[-2]
+    bull_cross = prev_macd <= prev_signal and macd_val > signal_val
+    bear_cross = prev_macd >= prev_signal and macd_val < signal_val
+    return {
+        "macd": macd_val, "signal": signal_val, "hist": macd_val - signal_val,
+        "bull_cross": bull_cross, "bear_cross": bear_cross,
+    }
+
+
+def compute_1y_return(dated_closes: list[tuple[str, float]], ltp: float) -> float | None:
+    """% change from the close nearest 365 days ago to today's LTP."""
+    if not dated_closes or not ltp:
+        return None
+    target = (datetime.now() - timedelta(days=365)).strftime("%Y-%m-%d")
+    candidates = [c for d, c in dated_closes if d <= target]
+    if not candidates:
+        return None
+    year_ago = candidates[-1]
+    return (ltp - year_ago) / year_ago * 100 if year_ago else None
 
 
 # ── Sentiment engine ──────────────────────────────────────────────
@@ -162,12 +222,23 @@ def fetch_stock(scraper: NepseScraper, symbol: str) -> str:
     # Fetch full price history from ShareSansar for all SMA/RSI calculations —
     # the scraper's 90-day window is too short for reliable SMA50 on busy calendars.
     volumes: list[float] = []
+    pivots = None
     try:
         end = date.today()
         start = end - timedelta(days=90)
         hist = scraper.get_ticker_price_history(symbol, start.strftime("%Y-%m-%d"), end.strftime("%Y-%m-%d"))
         rows = sorted(hist.get("content", []), key=lambda r: r.get("businessDate", ""))
         volumes = [float(r["totalTradedQuantity"]) for r in rows if r.get("totalTradedQuantity")]
+        # Most recent completed session (excludes today, which hasn't settled into
+        # this history endpoint yet) — its H/L/C seeds today's pivot levels.
+        prior_rows = [r for r in rows if r.get("businessDate") != biz_date]
+        if prior_rows:
+            prior = prior_rows[-1]
+            pivots = compute_pivots(
+                float(prior.get("highPrice") or 0),
+                float(prior.get("lowPrice") or 0),
+                float(prior.get("closePrice") or 0),
+            )
     except Exception:
         pass
 
@@ -182,8 +253,16 @@ def fetch_stock(scraper: NepseScraper, symbol: str) -> str:
     sma50 = compute_sma(price_data, 50)
     sma200 = compute_sma(price_data, 200) if len(price_data) >= 200 else None
     rsi = compute_rsi(price_data, 14) if len(price_data) > 14 else None
+    macd = compute_macd(price_data)
     avg_vol = (sum(volumes[-20:]) / len(volumes[-20:])) if len(volumes) >= 5 else None
     vol_ratio = (volume / avg_vol) if avg_vol and avg_vol > 0 else None
+
+    dated_closes: list[tuple[str, float]] = []
+    try:
+        dated_closes = get_history_dated_closes(symbol)
+    except Exception:
+        pass
+    ret_1y = compute_1y_return(dated_closes, ltp)
 
     verdict, plain, signals, score = build_sentiment(
         ltp, sma20, sma50, rsi, vol_ratio, day_pct, w52_pct, sma200=sma200
@@ -232,6 +311,10 @@ def fetch_stock(scraper: NepseScraper, symbol: str) -> str:
             lines.append("   <i>Near yearly high — strong run</i>")
         elif w52_pct <= 25:
             lines.append("   <i>Near yearly low — possible opportunity or continued fall</i>")
+    if ret_1y is not None:
+        ret_sign = "+" if ret_1y >= 0 else ""
+        ret_icon = "🟢" if ret_1y >= 0 else "🔴"
+        lines.append(f"   {ret_icon} 1-year return: <b>{ret_sign}{ret_1y:.1f}%</b>")
 
     if mktcap:
         pb = ltp / networth if networth else 0
@@ -280,6 +363,25 @@ def fetch_stock(scraper: NepseScraper, symbol: str) -> str:
             rsi_label = "Neutral"
         lines.append(f"   RSI (14-day): <b>{rsi:.0f}/100</b>  →  {rsi_label}")
         lines.append("   <i>RSI: 0-30 = very cheap/oversold, 30-70 = normal, 70-100 = expensive/overbought</i>")
+    if macd is not None:
+        if macd["bull_cross"]:
+            macd_label = "Just crossed BULLISH 🟢 — momentum turning up"
+        elif macd["bear_cross"]:
+            macd_label = "Just crossed BEARISH 🔴 — momentum turning down"
+        elif macd["macd"] > macd["signal"]:
+            macd_label = "Bullish — trend line above signal line"
+        else:
+            macd_label = "Bearish — trend line below signal line"
+        lines.append(f"   MACD: <b>{macd['macd']:.2f}</b> vs signal {macd['signal']:.2f}  →  {macd_label}")
+
+    if pivots is not None:
+        lines += [
+            "",
+            "🎯 <b>Pivot Points</b>  <i>(today's support/resistance from yesterday's range)</i>",
+            f"   Resistance:  R3 {pivots['r3']:,.1f}   R2 {pivots['r2']:,.1f}   R1 {pivots['r1']:,.1f}",
+            f"   Pivot:       {pivots['pp']:,.1f}",
+            f"   Support:     S1 {pivots['s1']:,.1f}   S2 {pivots['s2']:,.1f}   S3 {pivots['s3']:,.1f}",
+        ]
 
     # Build a 2-line key-reasons summary from the strongest aligned signals
     aligned = [txt for ic, txt in signals if (ic == "🟢") == (score >= 0)][:2]
