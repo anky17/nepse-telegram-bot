@@ -296,19 +296,18 @@ async function boot() {
   };
 
   try {
-    const [meta, recap, latest] = await Promise.all([
+    const [meta, board] = await Promise.all([
       fetchJSON("meta.json"),
-      fetchJSON("recap/latest.json"),
-      fetchJSON("latest.json"),
+      loadBoardData(),
       loadCompanyNames(),
     ]);
 
     $("archiveStat").textContent = `${meta.tradingDays} sessions archived since ${meta.firstDate}`;
 
-    state.latestRows = latest.rows || [];
+    state.latestRows = board.rows;
     for (const row of state.latestRows) state.rowsBySymbol.set(row.symbol, row);
 
-    renderPulse(recap);
+    renderPulse(board.recap);
     renderMovers();
     renderMostActive();
     renderBoard();
@@ -1608,7 +1607,14 @@ boot();
 // instead of requiring a manual reload.
 
 const AUTO_REFRESH_MS = 60 * 1000;
+// Hard ceiling: refresh even while document.hidden is true, as long as it's
+// been this long since the last successful refresh. Normally the tab pauses
+// in the background to save requests and catches up via visibilitychange —
+// this is just a backstop in case that event ever fails to fire (browser
+// quirk, extension interference) so staleness always has a bound.
+const MAX_STALE_MS = 5 * 60 * 1000;
 let refreshInFlight = false;
+let lastRefreshAt = 0;
 
 // Matches the bot's own active window (9 AM pre-market prep through ~9 PM,
 // once EOD/dividend/notice jobs have all landed) — no point polling at 3 AM.
@@ -1625,19 +1631,53 @@ function isPollWindow() {
   return hour >= 9 && hour < 21;
 }
 
+// board.json is written by nepse_bot.py every 30 min during market hours,
+// straight from the live NEPSE API (same source Telegram's updates use) —
+// mirrors latest.json's row shape so either can feed the board renderer.
+// EOD ShareSansar data (latest.json/recap) is the fallback for whenever a
+// live snapshot isn't available yet: before the first bot run of the day,
+// after hours, or on a non-trading day.
+async function loadBoardData() {
+  try {
+    const live = await fetchJSON("board.json");
+    if (!live.error && live.rows?.length) {
+      return { rows: live.rows, recap: computeRecapFromBoard(live) };
+    }
+  } catch (err) {
+    console.error("live board fetch failed", err);
+  }
+  const [recap, latest] = await Promise.all([
+    fetchJSON("recap/latest.json"),
+    fetchJSON("latest.json"),
+  ]);
+  return { rows: latest.rows || [], recap };
+}
+
+function computeRecapFromBoard(board) {
+  let advances = 0, declines = 0, unchanged = 0, totalTurnover = 0, totalTransactions = 0, mostActive = null;
+  for (const r of board.rows) {
+    if (r.diffPct > 0) advances++;
+    else if (r.diffPct < 0) declines++;
+    else unchanged++;
+    totalTurnover += r.turnover || 0;
+    totalTransactions += r.trans || 0;
+    if (!mostActive || (r.turnover || 0) > mostActive.turnover) mostActive = { symbol: r.symbol, turnover: r.turnover || 0 };
+  }
+  return { date: board.date, advances, declines, unchanged, totalTurnover, totalTransactions, mostActive };
+}
+
 async function refreshBoard() {
   try {
-    const [meta, recap, latest] = await Promise.all([
+    const [meta, board] = await Promise.all([
       fetchJSON("meta.json"),
-      fetchJSON("recap/latest.json"),
-      fetchJSON("latest.json"),
+      loadBoardData(),
     ]);
     $("archiveStat").textContent = `${meta.tradingDays} sessions archived since ${meta.firstDate}`;
 
-    state.latestRows = latest.rows || [];
+    state.latestRows = board.rows;
     state.rowsBySymbol = new Map(state.latestRows.map((r) => [r.symbol, r]));
 
-    renderPulse(recap);
+    renderPulse(board.recap);
     animateMoodNeedle(state.bullRatio);
     renderMovers();
     renderMostActive();
@@ -1651,7 +1691,8 @@ async function refreshBoard() {
 }
 
 async function refreshLiveData() {
-  if (refreshInFlight || document.hidden || !isPollWindow()) return;
+  if (refreshInFlight || !isPollWindow()) return;
+  if (document.hidden && Date.now() - lastRefreshAt < MAX_STALE_MS) return;
   refreshInFlight = true;
   try {
     await Promise.all([
@@ -1662,6 +1703,7 @@ async function refreshLiveData() {
       loadNotices(),
       refreshBoard(),
     ]);
+    lastRefreshAt = Date.now();
   } finally {
     refreshInFlight = false;
   }

@@ -22,6 +22,7 @@ const KV_JSON_ROUTES = {
   "circuits.json": "site_circuits",
   "notices.json": "site_notices",
   "dividends.json": "site_dividends",
+  "board.json": "site_board",
 };
 
 export default {

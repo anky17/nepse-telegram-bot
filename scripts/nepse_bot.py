@@ -294,6 +294,39 @@ def build_watchlist_section(scraper: NepseScraper, watch_stocks: list[str]) -> s
     return "\n".join(lines)
 
 
+# ── Live board snapshot for the website ────────────────────────────
+# get_today_price() already has everything the site's board table needs
+# (OHLC, volume, turnover, 52-week range) — mirror ShareSansar's latest.json
+# row shape exactly so site/app.js can use either source interchangeably.
+
+def build_site_board(today_prices: list[dict]) -> list[dict]:
+    rows = []
+    for s in today_prices:
+        symbol = s.get("symbol")
+        if not symbol:
+            continue
+        prev_close = fval(s, "previousDayClosePrice")
+        ltp = fval(s, "lastUpdatedPrice") or fval(s, "closePrice") or prev_close
+        diff_pct = ((ltp - prev_close) / prev_close * 100) if prev_close else 0.0
+        rows.append({
+            "symbol": symbol,
+            "open": fval(s, "openPrice"),
+            "high": fval(s, "highPrice"),
+            "low": fval(s, "lowPrice"),
+            "close": fval(s, "closePrice") or ltp,
+            "ltp": ltp,
+            "vwap": fval(s, "averageTradedPrice"),
+            "vol": ival(s, "totalTradedQuantity"),
+            "prevClose": prev_close,
+            "turnover": fval(s, "totalTradedValue"),
+            "trans": ival(s, "totalTrades"),
+            "diffPct": diff_pct,
+            "high52": fval(s, "fiftyTwoWeekHigh"),
+            "low52": fval(s, "fiftyTwoWeekLow"),
+        })
+    return rows
+
+
 # ── Main ──────────────────────────────────────────────────────────
 
 def main():
@@ -351,6 +384,16 @@ def main():
                 })
         except Exception as e:
             print(f"[WARN] Sector KV write error: {e}")
+
+        try:
+            kv_put_json("site_board", {
+                "date": now_nst.strftime("%Y-%m-%d"),
+                "updatedAt": now_nst.isoformat(),
+                "count": len(today_prices),
+                "rows": build_site_board(today_prices),
+            })
+        except Exception as e:
+            print(f"[WARN] Board KV write error: {e}")
 
     try:
         live = scraper.get_live_indices()
