@@ -35,7 +35,9 @@ def put(key: str, value: str):
     if not _ACCOUNT:
         return
     try:
-        requests.put(f"{_BASE}/values/{key}", headers=_HEADERS, data=value, timeout=10)
+        r = requests.put(f"{_BASE}/values/{key}", headers=_HEADERS, data=value, timeout=20)
+        if not r.ok:
+            print(f"[WARN] KV put {key}: HTTP {r.status_code}: {r.text[:300]}")
     except Exception as e:
         print(f"[WARN] KV put {key}: {e}")
 
