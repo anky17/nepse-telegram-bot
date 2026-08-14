@@ -3,7 +3,7 @@ from datetime import datetime
 from nepse_scraper import NepseScraper
 from nepse.common import get_scraper, DIV, NST
 from nepse.telegram import send
-from nepse.kv import put_json as kv_put_json
+from nepse.kv import put_json as kv_put_json, put_index_snapshot
 
 
 def send_market_close_summary(scraper: NepseScraper) -> None:
@@ -18,12 +18,21 @@ def send_market_close_summary(scraper: NepseScraper) -> None:
         change = float(idx.get("change") or 0)
         pct = float(idx.get("perChange") or 0)
         prev = float(idx.get("previousClose") or idx.get("close") or 0)
+        high = float(idx.get("high") or 0)
+        low = float(idx.get("low") or 0)
         icon = "🟢" if change >= 0 else "🔴"
         sign = "+" if change >= 0 else ""
         lines += [
             f"📊 NEPSE Index",
             f"   {icon} <b>{current:,.2f}</b>  ({sign}{pct:.2f}%)  open {prev:,.2f}",
         ]
+        # Website's hero index number reads this KV key; nepse_bot.py stops
+        # writing it once the market closes, so this close-time write is what
+        # finalizes it to the actual closing tick instead of the last live one.
+        put_index_snapshot(
+            current=current, change=change, pct=pct, high=high, low=low,
+            date_str=now.strftime("%Y-%m-%d"), updated_at=now.isoformat(),
+        )
     except Exception:
         pass
 

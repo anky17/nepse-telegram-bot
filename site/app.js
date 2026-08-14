@@ -372,8 +372,9 @@ function arcPoint(f, r) {
 function gaugeArcPath(f0, f1) {
   const [x0, y0] = arcPoint(f0, 46);
   const [x1, y1] = arcPoint(f1, 46);
-  const largeArc = (f1 - f0) > 0.5 ? 1 : 0;
-  return `M${x0.toFixed(2)},${y0.toFixed(2)} A46,46 0 ${largeArc} 1 ${x1.toFixed(2)},${y1.toFixed(2)}`;
+  // f spans a semicircle (0-180deg), so the swept angle never exceeds 180deg
+  // and the large-arc-flag must always be 0.
+  return `M${x0.toFixed(2)},${y0.toFixed(2)} A46,46 0 0 1 ${x1.toFixed(2)},${y1.toFixed(2)}`;
 }
 
 // Sets the needle/fill-arc to their resting (most-bearish/empty) state with
@@ -1815,17 +1816,22 @@ function isPollWindow() {
 // board.json is written by nepse_bot.py every 30 min during market hours,
 // straight from the live NEPSE API (same source Telegram's updates use) —
 // mirrors latest.json's row shape so either can feed the board renderer.
-// EOD ShareSansar data (latest.json/recap) is the fallback for whenever a
-// live snapshot isn't available yet: before the first bot run of the day,
-// after hours, or on a non-trading day.
+// It's only trustworthy while the market is open: nepse_bot.py stops writing
+// it the moment the market closes, so once trading ends it's frozen on
+// whatever the last live tick was — missing symbols that only moved (or
+// started moving) later in the session, unlike the finalized EOD ShareSansar
+// data (latest.json/recap), which is the source of truth once the market's
+// closed, same as Telegram's EOD recap.
 async function loadBoardData() {
-  try {
-    const live = await fetchJSON("board.json");
-    if (!live.error && live.rows?.length) {
-      return { rows: live.rows, recap: computeRecapFromBoard(live) };
+  if (isMarketOpen()) {
+    try {
+      const live = await fetchJSON("board.json");
+      if (!live.error && live.rows?.length) {
+        return { rows: live.rows, recap: computeRecapFromBoard(live) };
+      }
+    } catch (err) {
+      console.error("live board fetch failed", err);
     }
-  } catch (err) {
-    console.error("live board fetch failed", err);
   }
   const [recap, latest] = await Promise.all([
     fetchJSON("recap/latest.json"),
