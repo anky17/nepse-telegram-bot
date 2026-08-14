@@ -26,6 +26,7 @@ const state = {
   watchlist: loadWatchlist(),
   indicators: { sma20: false, sma50: false, rsi: false, macd: false },
   boardFilter: "all",   // all | near-high | near-low
+  boardSectorFilter: null, // sector name, or null for no sector filter
   sectorMap: null,      // symbol -> sector name
   sectorPerf: [],        // [{name, pct}] today's sector performance
   bullRatio: 0,
@@ -207,16 +208,52 @@ function attachHeroChartCrosshair() {
   };
 }
 
+// Heatmap tile background: blend the sector's own accent color into the panel
+// background, scaled by how extreme its move is relative to the day's most
+// extreme mover — so the grid re-calibrates itself every session instead of
+// using a fixed magnitude scale that'd look flat on a quiet day.
+function sectorHeatColor(pct, maxAbsPct) {
+  const intensity = maxAbsPct > 0 ? Math.min(Math.abs(pct) / maxAbsPct, 1) : 0;
+  const mix = Math.round(14 + intensity * 46); // 14%..60% of accent color
+  const accent = pct >= 0 ? "var(--green)" : "var(--red)";
+  return `color-mix(in srgb, ${accent} ${mix}%, var(--bg-panel))`;
+}
+
+function renderSectorHeatmap() {
+  const sectors = state.sectorPerf;
+  const row = $("sectorStripRow");
+  if (!sectors.length) {
+    row.innerHTML = "";
+    return;
+  }
+  const sorted = [...sectors].sort((a, b) => b.pct - a.pct);
+  const maxAbsPct = Math.max(...sorted.map((s) => Math.abs(s.pct)), 0.01);
+
+  row.innerHTML = sorted.map((s) => {
+    const cls = s.pct >= 0 ? "up" : "down";
+    const bg = sectorHeatColor(s.pct, maxAbsPct);
+    const active = s.name === state.boardSectorFilter ? " active" : "";
+    return `<div class="sector-tile${active}" data-sector="${s.name}" style="background:${bg}" title="Click to filter the board to ${s.name}">
+      <span class="st-name">${s.name}</span>
+      <span class="st-pct ${cls}">${fmtPct(s.pct)}</span>
+    </div>`;
+  }).join("");
+
+  $("sectorHeatMin").textContent = fmtPct(sorted[sorted.length - 1].pct);
+  $("sectorHeatMax").textContent = fmtPct(sorted[0].pct);
+}
+
+$("sectorStripRow").addEventListener("click", (e) => {
+  const tile = e.target.closest(".sector-tile");
+  if (tile) setSectorFilter(tile.dataset.sector);
+});
+
 async function loadSectors() {
   try {
     const data = await fetchJSON("sectors.json");
     if (data.error) throw new Error(data.error);
     state.sectorPerf = data.sectors || [];
-    const row = $("sectorStripRow");
-    row.innerHTML = state.sectorPerf.map((s) => {
-      const cls = s.pct >= 0 ? "up" : "down";
-      return `<span class="sector-chip"><span class="sc-name">${s.name}</span><span class="sc-pct ${cls}">${fmtPct(s.pct)}</span></span>`;
-    }).join("");
+    renderSectorHeatmap();
     $("sectorStripDate").textContent = data.date || "";
     await bootDone;
     $("sectorStrip").classList.toggle("hidden", !state.sectorPerf.length);
@@ -435,12 +472,19 @@ function renderPulse(recap) {
     `<span style="width:${barPct}%;background:var(--green)"></span>` +
     `<span style="width:${barPctDown}%;background:var(--red)"></span>` +
     `<span style="width:${100 - barPct - barPctDown}%;background:var(--text-dimmer)"></span>`;
-  $("breadthNums").textContent = `${advances} up · ${declines} down · ${unchanged} flat`;
+  $("breadthNums").innerHTML =
+    `<span class="up">${advances} up</span> · <span class="down">${declines} down</span> · <span class="flat">${unchanged} flat</span>`;
 
   $("statTurnover").textContent = `Rs ${fmtCompact(recap.totalTurnover)}`;
   $("statTrans").textContent = (recap.totalTransactions || 0).toLocaleString("en-US");
   const ma = recap.mostActive || {};
-  $("statActive").textContent = ma.symbol ? `${ma.symbol} · Rs ${fmtCompact(ma.turnover)}` : "—";
+  if (ma.symbol) {
+    const maRow = state.rowsBySymbol.get(ma.symbol);
+    const pctHtml = maRow ? ` <span class="${maRow.diffPct >= 0 ? "up" : "down"}">${fmtPct(maRow.diffPct)}</span>` : "";
+    $("statActive").innerHTML = `${ma.symbol} · Rs ${fmtCompact(ma.turnover)}${pctHtml}`;
+  } else {
+    $("statActive").textContent = "—";
+  }
   $("statScrips").textContent = String(total);
 }
 
@@ -495,6 +539,9 @@ function matchesSearch(symbol, q) {
 const NEAR_52W_PCT = 0.03;
 
 function passesBoardFilter(row) {
+  if (state.boardSectorFilter && state.sectorMap?.[row.symbol] !== state.boardSectorFilter) {
+    return false;
+  }
   if (state.boardFilter === "near-high") {
     return row.high52 > 0 && row.ltp >= row.high52 * (1 - NEAR_52W_PCT);
   }
@@ -503,6 +550,35 @@ function passesBoardFilter(row) {
   }
   return true;
 }
+
+// scrollIntoView's default alignment puts the target's top edge flush with the
+// viewport top — but .topbar is position:sticky and sits on top of that edge,
+// hiding whatever scrolled up underneath it. scroll-margin-top (same fix as
+// openDetail below) tells scrollIntoView to leave room for it.
+function scrollBelowTopbar(el) {
+  const topbar = document.querySelector(".topbar");
+  el.style.scrollMarginTop = `${topbar.offsetHeight + 10}px`;
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function setSectorFilter(name) {
+  state.boardSectorFilter = state.boardSectorFilter === name ? null : name;
+  $("sectorStripRow").querySelectorAll(".sector-tile").forEach((t) => {
+    t.classList.toggle("active", t.dataset.sector === state.boardSectorFilter);
+  });
+  const chip = $("sectorFilterChip");
+  if (state.boardSectorFilter) {
+    $("sectorFilterName").textContent = state.boardSectorFilter;
+    chip.classList.remove("hidden");
+    setBoardCollapsed(false);
+    scrollBelowTopbar($("board"));
+  } else {
+    chip.classList.add("hidden");
+  }
+  renderBoard();
+}
+
+$("sectorFilterChip").addEventListener("click", () => setSectorFilter(state.boardSectorFilter));
 
 function sortedFilteredRows() {
   const key = state.sortKey;

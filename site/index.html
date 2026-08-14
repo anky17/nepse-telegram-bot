@@ -227,12 +227,17 @@
       <span class="board-title">SECTOR PERFORMANCE</span>
       <span class="board-count" id="sectorStripDate"></span>
     </div>
-    <div class="sector-strip-row" id="sectorStripRow"></div>
+    <div class="sector-heat-grid" id="sectorStripRow"></div>
+    <div class="sector-heat-legend">
+      <span class="shl-label" id="sectorHeatMin">—</span>
+      <span class="shl-bar"></span>
+      <span class="shl-label" id="sectorHeatMax">—</span>
+    </div>
   </section>
 
   <section class="circuit-strip hidden" id="circuitStrip">
     <div class="board-head">
-      <span class="board-title">⚡ CIRCUIT BREAKERS TODAY</span>
+      <span class="board-title">CIRCUIT BREAKERS TODAY</span>
     </div>
     <div class="circuit-strip-row" id="circuitStripRow"></div>
   </section>
@@ -252,7 +257,7 @@
 
   <section class="most-active hidden" id="mostActive">
     <div class="board-head">
-      <span class="board-title">⚡ MOST ACTIVE — BY TURNOVER</span>
+      <span class="board-title">MOST ACTIVE — BY TURNOVER</span>
     </div>
     <div class="mostactive-body">
       <table class="mover-table" id="activeTable"><tbody></tbody></table>
@@ -263,7 +268,7 @@
 
   <section class="watchlist hidden" id="watchlistSection">
     <div class="board-head">
-      <span class="board-title">★ WATCHLIST</span>
+      <span class="board-title">WATCHLIST</span>
     </div>
     <table class="mover-table watchlist-table" id="watchlistTable"><tbody id="watchlistBody"></tbody></table>
   </section>
@@ -276,6 +281,7 @@
         <button class="filter-chip" data-filter="near-high">Near 52W High</button>
         <button class="filter-chip" data-filter="near-low">Near 52W Low</button>
       </div>
+      <button class="sector-filter-chip hidden" id="sectorFilterChip">Sector: <span id="sectorFilterName"></span> ✕</button>
       <span class="board-count" id="boardCount"></span>
       <button class="export-btn" id="boardExportBtn">Export CSV</button>
       <button class="board-toggle" id="boardToggle">Hide ▴</button>
@@ -302,7 +308,7 @@
 
     <section class="dividends-section hidden" id="dividendsSection">
       <div class="board-head">
-        <span class="board-title">💰 PROPOSED DIVIDENDS</span>
+        <span class="board-title">PROPOSED DIVIDENDS</span>
       </div>
       <div class="board-scroll">
         <table class="board-table" id="dividendsTable">
@@ -323,7 +329,7 @@
 
     <section class="bulk-section hidden" id="bulkSection">
       <div class="broker-head">
-        <span class="board-title">🔷 BULK TRANSACTIONS</span>
+        <span class="board-title">BULK TRANSACTIONS</span>
         <button class="broker-load-btn" id="bulkLoadBtn">Load bulk trades (~15MB) ▾</button>
       </div>
       <div class="broker-result hidden" id="bulkResult"></div>
@@ -332,7 +338,7 @@
 
   <section class="notices-section hidden" id="noticesSection">
     <div class="board-head">
-      <span class="board-title">📢 MARKET NOTICES</span>
+      <span class="board-title">MARKET NOTICES</span>
       <button class="board-toggle" id="noticesToggle">Show all ▾</button>
     </div>
     <ul class="notices-list collapsed" id="noticesList"></ul>
