@@ -848,6 +848,10 @@ section {
   .board-table th:nth-child(6), .board-table td:nth-child(6),
   .board-table th:nth-child(7), .board-table td:nth-child(7) { display: none; }
   .board-count { flex-basis: 100%; margin-left: 0; }
+  .sector-filter-chip { flex-basis: 100%; text-align: center; }
+
+  .sector-heat-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
+  .sector-tile { padding: 8px 10px; }
 
   .detail { padding: 16px 14px; }
   .detail-head { padding-right: 54px; }
