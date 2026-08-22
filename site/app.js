@@ -1,3 +1,11 @@
+// GHANTAGHAR dashboard — vanilla JS, no build step, no framework.
+// Roughly top to bottom: state & helpers, clock/market-hours, index + sector
+// + circuit + notices widgets, boot sequence, market pulse, movers/board/
+// watchlist, scrolling ticker, quick search, stock detail (chart, verdict,
+// pivots, broker/dividend panels), CSV export, modals, then auto-refresh.
+
+// ---------- config & boot synchronization ----------
+
 // Proxied through the Worker (worker/index.js `/data/*`), which caches every
 // successful upstream response in KV and serves the last-known-good copy if
 // the upstream (omitnomis.github.io/ShareSansarScraper) deploy is ever broken.
@@ -12,6 +20,8 @@ const DIVIDEND_BASE = "https://raw.githubusercontent.com/SamirWagle/Nepse-All-Sc
 // consistent moment once boot() finishes, no matter which fetch wins the race.
 let resolveBootDone;
 const bootDone = new Promise((resolve) => { resolveBootDone = resolve; });
+
+// ---------- app state ----------
 
 const state = {
   latestRows: [],       // this session's rows, keyed lookup below
@@ -30,7 +40,30 @@ const state = {
   sectorMap: null,      // symbol -> sector name
   sectorPerf: [],        // [{name, pct}] today's sector performance
   bullRatio: 0,
+  indexPct: null,        // today's NEPSE index % change, once loaded
+  indexCls: null,        // "up" | "down", matches indexPct's sign
+  advances: null,        // today's market breadth, once loaded
+  declines: null,
 };
+
+// ---------- market takeaway sentence ----------
+// Plain-language "what happened today" sentence, composed once both the index
+// change and market breadth have loaded (order isn't guaranteed — each fetch
+// calls this, and it only renders once both pieces are in).
+async function updateMarketTakeaway() {
+  if (state.indexPct == null || state.advances == null || state.declines == null) return;
+  const dir = state.indexCls === "up" ? "rose" : state.indexCls === "down" ? "fell" : "was flat";
+  const breadth = state.advances > state.declines
+    ? `more stocks rose (${state.advances}) than fell (${state.declines})`
+    : state.declines > state.advances
+      ? `more stocks fell (${state.declines}) than rose (${state.advances})`
+      : `stocks were evenly split (${state.advances} up, ${state.declines} down)`;
+  $("marketTakeaway").textContent = `NEPSE ${dir} ${Math.abs(state.indexPct).toFixed(2)}% today — ${breadth}.`;
+  await bootDone;
+  $("marketTakeaway").classList.remove("hidden");
+}
+
+// ---------- watchlist persistence ----------
 
 function loadWatchlist() {
   try {
@@ -52,6 +85,8 @@ function toggleWatch(symbol) {
   renderBoard();
   if (symbol === state.currentSymbol) updateDetailStar();
 }
+
+// ---------- small helpers: DOM lookup & formatting ----------
 
 const $ = (id) => document.getElementById(id);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -76,6 +111,8 @@ function fmtPct(n) {
   const sign = n > 0 ? "+" : "";
   return `${sign}${Number(n).toFixed(2)}%`;
 }
+
+// ---------- clock & market hours ----------
 
 function clockTick() {
   const now = new Date();
@@ -114,6 +151,8 @@ function updateLiveIndicator() {
     : "Market is closed — prices shown are from the last session. Trading resumes 11:00 AM NST on the next trading day.";
 }
 
+// ---------- NEPSE index: hero value & intraday sparkline ----------
+
 async function loadIndex() {
   try {
     const idx = await fetchJSON("index.json");
@@ -134,6 +173,10 @@ async function loadIndex() {
     heroChgEl.textContent = chgText;
     heroChgEl.className = `index-hero-chg ${cls}`;
     $("heroIndexRange").textContent = `H: ${fmtNum(idx.high)}   L: ${fmtNum(idx.low)}`;
+
+    state.indexPct = idx.pct;
+    state.indexCls = cls;
+    updateMarketTakeaway();
   } catch (err) {
     console.error("index fetch failed", err);
   }
@@ -208,6 +251,8 @@ function attachHeroChartCrosshair() {
   };
 }
 
+// ---------- sector heatmap ----------
+
 // Heatmap tile background: blend the sector's own accent color into the panel
 // background, scaled by how extreme its move is relative to the day's most
 // extreme mover — so the grid re-calibrates itself every session instead of
@@ -275,6 +320,8 @@ async function loadSectorMap() {
 }
 loadSectorMap();
 
+// ---------- circuit breakers ----------
+
 async function loadCircuits() {
   try {
     const data = await fetchJSON("circuits.json");
@@ -293,6 +340,8 @@ async function loadCircuits() {
   }
 }
 loadCircuits();
+
+// ---------- market notices ----------
 
 async function loadNotices() {
   try {
@@ -321,6 +370,8 @@ $("noticesToggle").addEventListener("click", () => {
   $("noticesToggle").textContent = collapsed ? "Show all ▾" : "Show fewer ▴";
 });
 
+// ---------- pulse view tabs (chart vs. mood meter) ----------
+
 $("pulseTabs").addEventListener("click", (e) => {
   const btn = e.target.closest(".pulse-tab");
   if (!btn) return;
@@ -329,6 +380,8 @@ $("pulseTabs").addEventListener("click", (e) => {
   $("chartView").classList.toggle("hidden", view !== "chart");
   $("pulseMood").classList.toggle("hidden", view !== "meter");
 });
+
+// ---------- data fetching helpers ----------
 
 async function fetchJSON(path) {
   const r = await fetch(API + path, { cache: "no-store" });
@@ -346,6 +399,8 @@ async function loadCompanyNames() {
     // full-name search just degrades to symbol-only search
   }
 }
+
+// ---------- boot sequence ----------
 
 async function boot() {
   const isFirstVisit = !localStorage.getItem("ghantaghar:visited");
@@ -398,6 +453,8 @@ async function boot() {
   }
 }
 
+// ---------- mood gauge (mini SVG gauge math) ----------
+
 // Gauge arc geometry: center (60,62) r=46, sweeping the top semicircle from
 // f=0 (leftmost, angle 180°) to f=1 (rightmost, angle 0°) through the top
 // (f=0.5, angle 90°). Mirrors the fixed radius used by the static SVG paths.
@@ -440,6 +497,8 @@ function animateMoodNeedle(bullRatio) {
     });
   });
 }
+
+// ---------- market pulse (breadth, mood, today's stats) ----------
 
 function renderPulse(recap) {
   const advances = recap.advances || 0;
@@ -486,7 +545,13 @@ function renderPulse(recap) {
     $("statActive").textContent = "—";
   }
   $("statScrips").textContent = String(total);
+
+  state.advances = advances;
+  state.declines = declines;
+  updateMarketTakeaway();
 }
+
+// ---------- top movers & most active ----------
 
 function moverRow(item) {
   const tr = document.createElement("tr");
@@ -528,6 +593,8 @@ function renderMostActive() {
   byTurnover.slice(0, 8).forEach((r) => body.appendChild(activeRow(r)));
   $("mostActive").classList.toggle("hidden", byTurnover.length === 0);
 }
+
+// ---------- market board: filtering ----------
 
 function matchesSearch(symbol, q) {
   if (symbol.includes(q)) return true;
@@ -580,6 +647,8 @@ function setSectorFilter(name) {
 
 $("sectorFilterChip").addEventListener("click", () => setSectorFilter(state.boardSectorFilter));
 
+// ---------- market board: sorting & rendering ----------
+
 function sortedFilteredRows() {
   const key = state.sortKey;
   const dir = state.sortDir;
@@ -618,6 +687,8 @@ function renderBoard() {
   body.appendChild(frag);
 }
 
+// ---------- watchlist rendering ----------
+
 function renderWatchlist() {
   const section = $("watchlistSection");
   if (!state.watchlist.size) {
@@ -647,6 +718,8 @@ function renderWatchlist() {
   body.appendChild(frag);
 }
 
+// ---------- scrolling ticker ----------
+
 function renderTicker() {
   const top = [...state.latestRows].sort((a, b) => (b.turnover || 0) - (a.turnover || 0)).slice(0, 25);
   if (!top.length) return;
@@ -671,6 +744,8 @@ $("ticker").addEventListener("click", (e) => {
   const item = e.target.closest(".ticker-item");
   if (item) openDetail(item.dataset.sym);
 });
+
+// ---------- market board: controls (sort/collapse/filter) ----------
 
 document.querySelectorAll("#boardTable thead th").forEach((th) => {
   th.addEventListener("click", () => {
@@ -797,7 +872,7 @@ async function openDetail(symbol) {
   location.hash = symbol;
   state.currentSymbol = symbol;
 
-  resetLoadable("trendLoadBtn", "trendResult", "Load trend (~15MB) ▾");
+  resetLoadable("trendLoadBtn", "trendResult", "See 5-day trend ▾");
   loadBrokerPositions(symbol);
   loadDividendHistory(symbol);
 
@@ -817,6 +892,7 @@ async function openDetail(symbol) {
   const topbar = document.querySelector(".topbar");
   detailEl.style.scrollMarginTop = `${topbar.offsetHeight + 10}px`;
   detailEl.classList.remove("hidden");
+  $("app").classList.add("showing-detail");
   detailEl.scrollIntoView({ behavior: "smooth", block: "start" });
 
   await loadHistoryAndDraw(symbol);
@@ -861,6 +937,7 @@ function refreshOpenDetail() {
 
 $("detailClose").addEventListener("click", () => {
   $("detail").classList.add("hidden");
+  $("app").classList.remove("showing-detail");
   history.replaceState(null, "", location.pathname + location.search);
 });
 
@@ -920,43 +997,43 @@ function computeVerdict(row, hist) {
   if (sma20 !== null) {
     const up = ltp > sma20;
     score += up ? 1 : -1;
-    signals.push([up, `Price is ${up ? "above" : "below"} its 20-day average — ${up ? "short-term uptrend" : "short-term downtrend"}`]);
+    signals.push([up, up ? "It's been rising over the past month (above its 20-day average)" : "It's been falling over the past month (below its 20-day average)"]);
   }
   if (sma50 !== null) {
     const up = ltp > sma50;
     score += up ? 1 : -1;
-    signals.push([up, `Price is ${up ? "above" : "below"} its 50-day average — ${up ? "medium-term uptrend" : "medium-term downtrend"}`]);
+    signals.push([up, up ? "It's been rising over the past two months (above its 50-day average)" : "It's been falling over the past two months (below its 50-day average)"]);
   }
   if (sma200 !== null) {
     const up = ltp > sma200;
     score += up ? 1 : -1;
-    signals.push([up, `Price is ${up ? "above" : "below"} its 200-day average — ${up ? "long-term uptrend" : "long-term downtrend"}`]);
+    signals.push([up, up ? "It's been rising over the past year (above its 200-day average)" : "It's been falling over the past year (below its 200-day average)"]);
     if (sma50 !== null) {
       const golden = sma50 > sma200;
       score += golden ? 1 : -1;
-      signals.push([golden, golden ? "50-day above 200-day — golden cross (bullish)" : "50-day below 200-day — death cross (bearish)"]);
+      signals.push([golden, golden ? "Its recent trend has turned up relative to its long-term trend — a bullish pattern chartists call a \"golden cross\"" : "Its recent trend has turned down relative to its long-term trend — a bearish pattern chartists call a \"death cross\""]);
     }
   }
   if (rsiVal !== null) {
-    if (rsiVal >= 70) { score -= 1; signals.push([false, `RSI ${rsiVal.toFixed(0)} — overbought, may cool off`]); }
-    else if (rsiVal <= 30) { score += 1; signals.push([true, `RSI ${rsiVal.toFixed(0)} — oversold, may bounce`]); }
-    else if (rsiVal >= 55) { score += 1; signals.push([true, `RSI ${rsiVal.toFixed(0)} — strong momentum`]); }
-    else if (rsiVal <= 45) { score -= 1; signals.push([false, `RSI ${rsiVal.toFixed(0)} — weak momentum`]); }
+    if (rsiVal >= 70) { score -= 1; signals.push([false, `It's risen very fast lately and may be due for a breather (RSI ${rsiVal.toFixed(0)}, "overbought")`]); }
+    else if (rsiVal <= 30) { score += 1; signals.push([true, `It's fallen very fast lately and may be due for a bounce (RSI ${rsiVal.toFixed(0)}, "oversold")`]); }
+    else if (rsiVal >= 55) { score += 1; signals.push([true, `Buying momentum looks strong right now (RSI ${rsiVal.toFixed(0)})`]); }
+    else if (rsiVal <= 45) { score -= 1; signals.push([false, `Buying momentum looks weak right now (RSI ${rsiVal.toFixed(0)})`]); }
   }
   if (volRatio !== null && volRatio >= 2.0) {
     const pos = dayPct >= 0;
     score += pos ? 1 : -1;
-    signals.push([pos, `Volume ${volRatio.toFixed(1)}x normal — ${pos ? "strong buying interest" : "heavy selling pressure"}`]);
+    signals.push([pos, pos ? `A lot more people are buying than usual today (volume ${volRatio.toFixed(1)}x normal)` : `A lot more people are selling than usual today (volume ${volRatio.toFixed(1)}x normal)`]);
   }
   if (w52Pct !== null) {
-    if (w52Pct >= 80) signals.push([null, "Near 52-week high — strong run, watch for a pullback"]);
-    else if (w52Pct <= 20) signals.push([null, "Near 52-week low — possible opportunity or continued weakness"]);
+    if (w52Pct >= 80) signals.push([null, "It's trading near its highest price in a year — that can mean strength, or that it's overdue for a pullback"]);
+    else if (w52Pct <= 20) signals.push([null, "It's trading near its lowest price in a year — that can mean a bargain, or that the weakness isn't over"]);
   }
 
   let verdict, cls, text;
-  if (score >= 2) { verdict = "✅ WATCH"; cls = "watch"; text = "More signals positive than negative."; }
-  else if (score >= 0) { verdict = "⚠️ CAUTION"; cls = "caution"; text = "Mixed signals — wait for confirmation."; }
-  else { verdict = "❌ AVOID"; cls = "avoid"; text = "More signals negative than positive."; }
+  if (score >= 2) { verdict = "✅ WATCH"; cls = "watch"; text = "More of the signals below point up than down."; }
+  else if (score >= 0) { verdict = "⚠️ CAUTION"; cls = "caution"; text = "The signals below are mixed — no clear direction yet."; }
+  else { verdict = "❌ AVOID"; cls = "avoid"; text = "More of the signals below point down than up."; }
 
   const reasons = signals.filter(([pos]) => pos === null || pos === (score >= 0)).slice(0, 3).map(([, t]) => t);
   return { verdict, cls, text, reasons };
@@ -970,6 +1047,7 @@ function renderVerdict(row, hist) {
   $("detailVerdict").textContent = result.verdict;
   $("detailVerdictText").textContent = result.text;
   $("detailVerdictReasons").innerHTML = result.reasons.map((r) => `<li>${r}</li>`).join("");
+  $("detailVerdictCaption").textContent = "Based on price trends, momentum, and volume patterns over the past year — not a prediction, and not investment advice.";
   card.classList.remove("hidden");
 }
 
@@ -1573,7 +1651,7 @@ $("trendLoadBtn").addEventListener("click", async () => {
   try {
     const trend = await loadBrokerTrend(symbol, 5);
     renderTrendResult(symbol, trend);
-    btn.textContent = "Reload trend ▾";
+    btn.textContent = "Refresh trend ▾";
   } finally {
     btn.disabled = false;
   }
@@ -1622,7 +1700,7 @@ async function loadDividendHistory(symbol) {
           </tbody>
         </table>`;
     }
-    btn.textContent = "Reload dividends ▾";
+    btn.textContent = "Refresh dividend history ▾";
   } finally {
     btn.disabled = false;
   }
@@ -1759,19 +1837,19 @@ function renderBrokerResult(symbol, date, result) {
 async function loadBrokerPositions(symbol) {
   const btn = $("brokerLoadBtn");
   btn.disabled = true;
-  btn.textContent = "Loading floorsheet…";
+  btn.textContent = "Loading broker data…";
   try {
     const fs = await fetchLatestFloorsheet();
     if (!fs) {
       $("brokerResult").classList.remove("hidden");
       $("brokerResult").innerHTML = `<div class="broker-empty">Floorsheet unavailable right now — try again later.</div>`;
-      btn.textContent = "Load floorsheet ▾";
+      btn.textContent = "See broker activity ▾";
       btn.disabled = false;
       return;
     }
     const result = analyzeBroker(symbol, fs.rows);
     renderBrokerResult(symbol, fs.date, result);
-    btn.textContent = "Reload floorsheet ▾";
+    btn.textContent = "Refresh broker data ▾";
   } finally {
     btn.disabled = false;
   }
@@ -1786,14 +1864,14 @@ $("brokerLoadBtn").addEventListener("click", () => {
 $("bulkLoadBtn").addEventListener("click", async () => {
   const btn = $("bulkLoadBtn");
   btn.disabled = true;
-  btn.textContent = "Loading floorsheet…";
+  btn.textContent = "Loading trade data…";
   try {
     const fs = await fetchLatestFloorsheet();
     const result = $("bulkResult");
     if (!fs) {
       result.classList.remove("hidden");
       result.innerHTML = `<div class="broker-empty">Floorsheet unavailable right now — try again later.</div>`;
-      btn.textContent = "Load bulk trades (~15MB) ▾";
+      btn.textContent = "See today's biggest trades ▾";
       return;
     }
     const top = [...fs.rows].sort((a, b) => b.qty - a.qty).slice(0, 20);
@@ -1813,7 +1891,7 @@ $("bulkLoadBtn").addEventListener("click", async () => {
         </tbody>
       </table>`;
     result.classList.remove("hidden");
-    btn.textContent = "Reload bulk trades ▾";
+    btn.textContent = "Refresh trade data ▾";
   } finally {
     btn.disabled = false;
   }

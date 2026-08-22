@@ -1,3 +1,12 @@
+/* ==========================================================================
+   GHANTAGHAR — NEPSE terminal
+   Plain CSS, no preprocessor, no build step. Sections below follow the page
+   top to bottom: topbar → boot → dashboard (pulse, movers, sector heatmap,
+   board) → stock detail (chart, verdict, pivots, broker/dividend panels) →
+   footer & modals, with mobile overrides grouped at the end.
+   ========================================================================== */
+
+/* ---------- design tokens ---------- */
 :root {
   --bg: #0b0f14;
   --bg-panel: #10151c;
@@ -14,8 +23,10 @@
   --amber: #ffb84d;
   --cyan: #4fd1ff;
   --mono: ui-monospace, "SF Mono", "JetBrains Mono", "Fira Code", Menlo, Consolas, monospace;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
+/* ---------- global reset & base ---------- */
 * { box-sizing: border-box; }
 
 html, body {
@@ -39,6 +50,26 @@ body {
 }
 
 a { color: var(--cyan); }
+
+/* ---------- typography: data vs. prose ---------- */
+/* Sentences meant to be *read* (not scanned as data) get a plain sans font —
+   monospace is great for aligning numbers/tickers but makes prose harder to
+   read at a glance, which matters for an audience that isn't already fluent
+   in market jargon. */
+.data-note,
+.market-takeaway,
+.boot-text,
+.verdict-text,
+.verdict-reasons li,
+.verdict-caption,
+.pivot-summary .pval,
+.notices-item,
+.about-modal p,
+.broker-meta,
+.broker-verdict,
+.broker-empty {
+  font-family: var(--sans);
+}
 
 /* ---------- topbar ---------- */
 .topbar {
@@ -108,6 +139,10 @@ a { color: var(--cyan); }
   white-space: nowrap;
   border-top: 1px solid var(--border-soft);
   padding: 7px 0;
+  /* Fades both edges so the scrolling ticker reads as continuous content
+     rather than text getting cut off mid-word. */
+  mask-image: linear-gradient(to right, transparent, black 24px, black calc(100% - 24px), transparent);
+  -webkit-mask-image: linear-gradient(to right, transparent, black 24px, black calc(100% - 24px), transparent);
 }
 
 .ticker-track {
@@ -197,6 +232,12 @@ a { color: var(--cyan); }
 
 .archive-stat { color: var(--text-dim); }
 
+/* Drop the least-actionable topbar item first as things get tight, well
+   before the fuller mobile stacking below kicks in. */
+@media (max-width: 1000px) {
+  .archive-stat { display: none; }
+}
+
 .about-link {
   background: none;
   border: 1px solid var(--border);
@@ -216,6 +257,13 @@ a { color: var(--cyan); }
   letter-spacing: .5px;
   color: var(--text-dim);
   padding: 2px 0;
+}
+
+.market-takeaway {
+  text-align: center;
+  font-size: 13px;
+  color: var(--text);
+  padding: 2px 0 10px;
 }
 
 /* ---------- boot ---------- */
@@ -423,7 +471,7 @@ section {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   gap: 8px;
-  padding: 14px 16px 8px;
+  padding: 8px 16px 14px;
 }
 .sector-tile {
   display: flex; flex-direction: column; gap: 4px;
@@ -444,7 +492,7 @@ section {
 
 .sector-heat-legend {
   display: flex; align-items: center; gap: 8px;
-  padding: 0 16px 14px; font-size: 10.5px; color: var(--text-dim);
+  padding: 14px 16px 0; font-size: 10.5px; color: var(--text-dim);
 }
 .sector-heat-legend .shl-bar {
   flex: 1; height: 6px; border-radius: 3px;
@@ -578,6 +626,20 @@ section {
 .board-table td.sym-cell { font-weight: 600; }
 
 /* ---------- detail ---------- */
+/* While a stock's detail is open, the page becomes dedicated to it — the rest
+   of the dashboard (movers, sector strip, market board, watchlist, notices,
+   etc.) is hidden rather than sitting below it, so there's one clear focus
+   instead of a long scroll back into an unrelated market overview. */
+#app.showing-detail .dashboard-grid,
+#app.showing-detail .watchlist,
+#app.showing-detail .board,
+#app.showing-detail .reference-zone,
+#app.showing-detail .notices-section,
+#app.showing-detail .data-note,
+#app.showing-detail .market-takeaway {
+  display: none;
+}
+
 .detail { padding: 18px 20px; position: relative; }
 .detail-close {
   position: absolute; top: 14px; right: 16px;
@@ -638,7 +700,8 @@ section {
 .verdict-card.avoid .verdict-badge { color: var(--red); }
 .verdict-text { margin-left: 8px; font-size: 12px; color: var(--text-dim); }
 .verdict-reasons { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-.verdict-reasons li { font-size: 11.5px; color: var(--text-dim); }
+.verdict-reasons li { font-size: 11.5px; color: var(--text-dim); line-height: 1.5; }
+.verdict-caption { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border-soft); font-size: 10.5px; color: var(--text-dimmer); line-height: 1.5; }
 
 .w52-bar-wrap { margin: 0 0 16px; }
 .w52-bar-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 6px; }
@@ -651,13 +714,20 @@ section {
 }
 .w52-bar-labels { display: flex; justify-content: space-between; margin-top: 6px; font-size: 10px; color: var(--text-dim); }
 
-.pivot-wrap { margin: 0 0 16px; padding: 10px 12px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 6px; }
-.pivot-top { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.pivot-wrap { margin: 16px 0; padding: 10px 12px; background: var(--bg-raised); border: 1px solid var(--border); border-radius: 6px; }
+.pivot-summary {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px;
+  cursor: pointer; list-style: none;
+}
+.pivot-summary::-webkit-details-marker { display: none; }
+.pivot-summary::before { content: "▸"; color: var(--text-dim); margin-right: 8px; flex-shrink: 0; }
+.pivot-wrap[open] .pivot-summary::before { content: "▾"; }
+.pivot-wrap[open] .pivot-summary { margin-bottom: 8px; }
 .pivot-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 .pivot-group { display: flex; align-items: center; gap: 6px; font-size: 12px; font-family: var(--mono); color: var(--text); }
 .pivot-group span:not(.pivot-tag) { margin-right: 6px; }
 .pivot-pp { font-weight: 600; }
-.pivot-tag { font-size: 9px; padding: 1px 4px; border-radius: 3px; color: var(--bg); }
+.pivot-tag { font-size: 9px; padding: 1px 4px; border-radius: 3px; color: var(--bg); cursor: help; }
 .pivot-tag.res { background: var(--red-dim); color: var(--red); background: rgba(255, 92, 92, 0.15); }
 .pivot-tag.sup { background: rgba(61, 220, 132, 0.15); color: var(--green); }
 .pivot-tag.pp { background: rgba(255, 184, 77, 0.2); color: var(--amber); }
@@ -839,7 +909,6 @@ section {
 
   .movers { grid-template-columns: 1fr; }
   .topbar-right { gap: 10px; font-size: 10px; margin-left: 0; width: 100%; justify-content: space-between; }
-  .archive-stat { display: none; }
   .quick-search { max-width: none; order: 3; flex-basis: 100%; }
   /* iOS Safari auto-zooms on focus when an input's font-size is under 16px,
      and won't zoom back out on blur — keep these at 16px on mobile. */

@@ -44,6 +44,7 @@
 
 <main id="app">
   <div class="data-note">ⓘ Prices update live during market hours (checked automatically, no reload needed) and finalize once a day after NEPSE's close.</div>
+  <div class="market-takeaway hidden" id="marketTakeaway"></div>
 
   <div class="boot" id="boot">
     <div class="boot-spinner">
@@ -71,6 +72,7 @@
       <span class="verdict-badge" id="detailVerdict">—</span>
       <span class="verdict-text" id="detailVerdictText"></span>
       <ul class="verdict-reasons" id="detailVerdictReasons"></ul>
+      <div class="verdict-caption" id="detailVerdictCaption"></div>
     </div>
 
     <div class="detail-grid" id="detailGrid"></div>
@@ -84,28 +86,6 @@
       <div class="w52-bar-labels">
         <span id="w52BarLowLabel"></span>
         <span id="w52BarHighLabel"></span>
-      </div>
-    </div>
-
-    <div class="pivot-wrap hidden" id="pivotWrap">
-      <div class="pivot-top">
-        <span class="plabel">PIVOT POINTS</span>
-        <span class="pval">today's S/R from yesterday's range</span>
-      </div>
-      <div class="pivot-row">
-        <div class="pivot-group">
-          <span class="pivot-tag res">R3</span><span id="pivotR3">—</span>
-          <span class="pivot-tag res">R2</span><span id="pivotR2">—</span>
-          <span class="pivot-tag res">R1</span><span id="pivotR1">—</span>
-        </div>
-        <div class="pivot-group pivot-pp">
-          <span class="pivot-tag pp">PP</span><span id="pivotPP">—</span>
-        </div>
-        <div class="pivot-group">
-          <span class="pivot-tag sup">S1</span><span id="pivotS1">—</span>
-          <span class="pivot-tag sup">S2</span><span id="pivotS2">—</span>
-          <span class="pivot-tag sup">S3</span><span id="pivotS3">—</span>
-        </div>
       </div>
     </div>
 
@@ -138,10 +118,32 @@
       <canvas id="macdCanvas"></canvas>
     </div>
 
+    <details class="pivot-wrap hidden" id="pivotWrap">
+      <summary class="pivot-summary">
+        <span class="plabel">SUPPORT &amp; RESISTANCE LEVELS</span>
+        <span class="pval">Price levels where this stock has often paused or reversed before — tap to view (advanced)</span>
+      </summary>
+      <div class="pivot-row">
+        <div class="pivot-group">
+          <span class="pivot-tag res" title="Resistance — the price has struggled to rise above this level before">R3</span><span id="pivotR3">—</span>
+          <span class="pivot-tag res" title="Resistance — the price has struggled to rise above this level before">R2</span><span id="pivotR2">—</span>
+          <span class="pivot-tag res" title="Resistance — the price has struggled to rise above this level before">R1</span><span id="pivotR1">—</span>
+        </div>
+        <div class="pivot-group pivot-pp">
+          <span class="pivot-tag pp" title="Pivot point — today's balance level, worked out from yesterday's high, low, and close">PP</span><span id="pivotPP">—</span>
+        </div>
+        <div class="pivot-group">
+          <span class="pivot-tag sup" title="Support — the price has often found a floor around this level before">S1</span><span id="pivotS1">—</span>
+          <span class="pivot-tag sup" title="Support — the price has often found a floor around this level before">S2</span><span id="pivotS2">—</span>
+          <span class="pivot-tag sup" title="Support — the price has often found a floor around this level before">S3</span><span id="pivotS3">—</span>
+        </div>
+      </div>
+    </details>
+
     <div class="broker-section">
       <div class="broker-head">
         <span class="board-title">BROKER POSITIONS</span>
-        <button class="broker-load-btn" id="brokerLoadBtn">Load floorsheet ▾</button>
+        <button class="broker-load-btn" id="brokerLoadBtn">See broker activity ▾</button>
       </div>
       <div class="broker-result hidden" id="brokerResult"></div>
     </div>
@@ -149,7 +151,7 @@
     <div class="broker-section">
       <div class="broker-head">
         <span class="board-title-group"><span class="board-title">5-DAY BROKER TREND</span><span class="premium-badge">★ PREMIUM</span></span>
-        <button class="broker-load-btn" id="trendLoadBtn">Load trend (~15MB) ▾</button>
+        <button class="broker-load-btn" id="trendLoadBtn">See 5-day trend ▾</button>
       </div>
       <div class="broker-result hidden" id="trendResult"></div>
     </div>
@@ -157,7 +159,7 @@
     <div class="broker-section">
       <div class="broker-head">
         <span class="board-title-group"><span class="board-title">DIVIDEND HISTORY</span><span class="premium-badge">★ PREMIUM</span></span>
-        <button class="broker-load-btn" id="dividendLoadBtn">Load dividends ▾</button>
+        <button class="broker-load-btn" id="dividendLoadBtn">See dividend history ▾</button>
       </div>
       <div class="broker-result hidden" id="dividendResult"></div>
     </div>
@@ -227,12 +229,12 @@
       <span class="board-title">SECTOR PERFORMANCE</span>
       <span class="board-count" id="sectorStripDate"></span>
     </div>
-    <div class="sector-heat-grid" id="sectorStripRow"></div>
     <div class="sector-heat-legend">
       <span class="shl-label" id="sectorHeatMin">—</span>
       <span class="shl-bar"></span>
       <span class="shl-label" id="sectorHeatMax">—</span>
     </div>
+    <div class="sector-heat-grid" id="sectorStripRow"></div>
   </section>
 
   <section class="circuit-strip hidden" id="circuitStrip">
@@ -330,7 +332,7 @@
     <section class="bulk-section hidden" id="bulkSection">
       <div class="broker-head">
         <span class="board-title">BULK TRANSACTIONS</span>
-        <button class="broker-load-btn" id="bulkLoadBtn">Load bulk trades (~15MB) ▾</button>
+        <button class="broker-load-btn" id="bulkLoadBtn">See today's biggest trades ▾</button>
       </div>
       <div class="broker-result hidden" id="bulkResult"></div>
     </section>
